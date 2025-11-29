@@ -11,14 +11,31 @@
         <header class="app-header">
             <div class="header-content">
                 <h1>📸 Mnemosyne</h1>
-                <div class="header-actions">
-                    <button id="uploadBtn" class="btn-primary">Upload Photos</button>
-                    <a href="/logout" class="btn-secondary">Logout</a>
+                <div class="header-user">
+                    <span class="username">{{.Username}}</span>
+                    {{if .IsAdmin}}
+                    <a href="/admin" class="btn-secondary btn-small">Admin</a>
+                    {{end}}
+                    <a href="/logout" class="btn-secondary btn-small">Logout</a>
                 </div>
             </div>
         </header>
         
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="my-photos">My Photos</button>
+            <button class="tab-btn" data-tab="family">Family Area</button>
+            {{if .IsAdmin}}
+            <button class="tab-btn" data-tab="all">All Photos</button>
+            {{end}}
+        </nav>
+        
         <main class="main-content">
+            <!-- Upload Button -->
+            <div class="upload-header">
+                <button id="uploadBtn" class="btn-primary">Upload Photos</button>
+            </div>
+            
             <!-- Upload Area -->
             <div id="uploadArea" class="upload-area" style="display: none;">
                 <div class="upload-box">
@@ -45,11 +62,8 @@
             <!-- Empty State -->
             <div id="emptyState" class="empty-state" style="display: none;">
                 <div class="empty-icon">📷</div>
-                <h2>No Photos Yet</h2>
-                <p>Upload your first photo to get started!</p>
-                <button class="btn-primary" onclick="document.getElementById('uploadBtn').click()">
-                    Upload Photos
-                </button>
+                <h2 id="emptyTitle">No Photos Yet</h2>
+                <p id="emptyMessage">Upload your first photo to get started!</p>
             </div>
         </main>
     </div>
@@ -60,15 +74,21 @@
         <div class="modal-content">
             <button class="modal-close">&times;</button>
             <img id="modalImage" src="" alt="">
+            <div class="modal-info">
+                <span id="modalFilename"></span>
+                <span id="modalOwner" class="photo-owner"></span>
+            </div>
             <div class="modal-actions">
                 <a id="downloadBtn" href="" download class="btn-secondary">Download</a>
+                <button id="shareBtn" class="btn-secondary" style="display: none;">Share to Family</button>
                 <button id="deleteBtn" class="btn-danger">Delete</button>
             </div>
         </div>
     </div>
     
     <input type="hidden" id="csrfToken" value="{{.CSRFToken}}">
+    <input type="hidden" id="currentUserID" value="{{.UserID}}">
+    <input type="hidden" id="isAdmin" value="{{.IsAdmin}}">
     <script src="/static/js/app.js"></script>
 </body>
 </html>
-

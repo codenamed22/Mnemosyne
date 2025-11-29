@@ -9,8 +9,8 @@
 <body>
     <div class="login-container">
         <div class="login-box">
-            <h1>🔒 Mnemosyne</h1>
-            <p class="subtitle">Local Photo Cloud</p>
+            <h1>📸 Mnemosyne</h1>
+            <p class="subtitle">Family Photo Cloud</p>
             
             {{if .Error}}
             <div class="error-message">
@@ -20,13 +20,24 @@
             
             <form method="POST" action="/login">
                 <div class="form-group">
+                    <label for="username">Username</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        required 
+                        autofocus
+                        autocomplete="username"
+                    >
+                </div>
+                
+                <div class="form-group">
                     <label for="password">Password</label>
                     <input 
                         type="password" 
                         id="password" 
                         name="password" 
                         required 
-                        autofocus
                         autocomplete="current-password"
                     >
                 </div>
@@ -35,10 +46,13 @@
             </form>
             
             <p class="help-text">
+                Don't have an account? <a href="/register">Register</a>
+            </p>
+            
+            <p class="help-text">
                 Access is restricted to your local network only.
             </p>
         </div>
     </div>
 </body>
 </html>
-
