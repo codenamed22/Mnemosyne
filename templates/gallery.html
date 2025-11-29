@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gallery - Mnemosyne Photo Cloud</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <h1>📸 Mnemosyne</h1>
+                <div class="header-actions">
+                    <button id="uploadBtn" class="btn-primary">Upload Photos</button>
+                    <a href="/logout" class="btn-secondary">Logout</a>
+                </div>
+            </div>
+        </header>
+        
+        <main class="main-content">
+            <!-- Upload Area -->
+            <div id="uploadArea" class="upload-area" style="display: none;">
+                <div class="upload-box">
+                    <div class="upload-icon">📁</div>
+                    <h2>Drag & Drop Photos Here</h2>
+                    <p>or click to browse</p>
+                    <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+                    <button id="closeUpload" class="btn-secondary">Cancel</button>
+                </div>
+                
+                <div id="uploadProgress" class="upload-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <p id="progressText">Uploading...</p>
+                </div>
+            </div>
+            
+            <!-- Photo Gallery -->
+            <div id="gallery" class="photo-gallery">
+                <div class="loading">Loading photos...</div>
+            </div>
+            
+            <!-- Empty State -->
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <div class="empty-icon">📷</div>
+                <h2>No Photos Yet</h2>
+                <p>Upload your first photo to get started!</p>
+                <button class="btn-primary" onclick="document.getElementById('uploadBtn').click()">
+                    Upload Photos
+                </button>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Photo Modal -->
+    <div id="photoModal" class="modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close">&times;</button>
+            <img id="modalImage" src="" alt="">
+            <div class="modal-actions">
+                <a id="downloadBtn" href="" download class="btn-secondary">Download</a>
+                <button id="deleteBtn" class="btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+    
+    <input type="hidden" id="csrfToken" value="{{.CSRFToken}}">
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+

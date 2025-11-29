@@ -1,0 +1,43 @@
+# Compiled binary
+mnemosyne
+mnemosyne.exe
+
+# Configuration (contains password)
+config.json
+
+# Photos and storage
+photos/
+
+# TLS certificates
+certs/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Go coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
