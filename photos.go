@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/disintegration/imaging"
 )
@@ -500,5 +502,204 @@ func (app *App) HandleSharePhoto(w http.ResponseWriter, r *http.Request) {
 		"status":    "success",
 		"message":   fmt.Sprintf("Photo %s family area", status),
 		"is_shared": newShared,
+	})
+}
+
+// BulkRequest represents a request with multiple photo IDs
+type BulkRequest struct {
+	PhotoIDs []int64 `json:"photo_ids"`
+	Share    bool    `json:"share"` // For bulk share: true = share, false = unshare
+}
+
+// HandleBulkShare shares or unshares multiple photos at once
+func (app *App) HandleBulkShare(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.PhotoIDs) == 0 {
+		http.Error(w, "No photos selected", http.StatusBadRequest)
+		return
+	}
+
+	updated := 0
+	for _, photoID := range req.PhotoIDs {
+		photo, err := app.db.GetPhotoByID(photoID)
+		if err != nil || photo == nil {
+			continue
+		}
+
+		// Only owner can share their photos
+		if photo.UserID != session.UserID {
+			continue
+		}
+
+		if err := app.db.SetPhotoShared(photoID, req.Share); err != nil {
+			continue
+		}
+		updated++
+	}
+
+	action := "unshared"
+	if req.Share {
+		action = "shared"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": fmt.Sprintf("%d photo(s) %s", updated, action),
+		"updated": updated,
+	})
+}
+
+// HandleBulkDownload creates a zip file with multiple photos
+func (app *App) HandleBulkDownload(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.PhotoIDs) == 0 {
+		http.Error(w, "No photos selected", http.StatusBadRequest)
+		return
+	}
+
+	// Collect valid photos
+	var photos []*Photo
+	for _, photoID := range req.PhotoIDs {
+		photo, err := app.db.GetPhotoByID(photoID)
+		if err != nil || photo == nil {
+			continue
+		}
+
+		// Check access: owner, shared, or admin
+		if photo.UserID != session.UserID && !photo.IsShared && !session.IsAdmin() {
+			continue
+		}
+
+		photos = append(photos, photo)
+	}
+
+	if len(photos) == 0 {
+		http.Error(w, "No accessible photos", http.StatusBadRequest)
+		return
+	}
+
+	// Set headers for zip download
+	timestamp := time.Now().Format("2006-01-02_150405")
+	filename := fmt.Sprintf("mnemosyne_photos_%s.zip", timestamp)
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	// Create zip writer
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	// Add each photo to the zip
+	usedNames := make(map[string]int)
+	for _, photo := range photos {
+		path, err := app.photoMgr.GetOriginalPath(photo)
+		if err != nil {
+			continue
+		}
+
+		// Handle duplicate filenames
+		name := photo.Filename
+		if count, exists := usedNames[name]; exists {
+			ext := filepath.Ext(name)
+			base := name[:len(name)-len(ext)]
+			name = fmt.Sprintf("%s_%d%s", base, count+1, ext)
+		}
+		usedNames[photo.Filename]++
+
+		// Create zip entry
+		zipEntry, err := zipWriter.Create(name)
+		if err != nil {
+			continue
+		}
+
+		// Read and write file
+		file, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+
+		_, err = io.Copy(zipEntry, file)
+		file.Close()
+		if err != nil {
+			continue
+		}
+	}
+}
+
+// HandleBulkDelete deletes multiple photos at once
+func (app *App) HandleBulkDelete(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.PhotoIDs) == 0 {
+		http.Error(w, "No photos selected", http.StatusBadRequest)
+		return
+	}
+
+	deleted := 0
+	for _, photoID := range req.PhotoIDs {
+		photo, err := app.db.GetPhotoByID(photoID)
+		if err != nil || photo == nil {
+			continue
+		}
+
+		// Check access: owner or admin
+		if photo.UserID != session.UserID && !session.IsAdmin() {
+			continue
+		}
+
+		if err := app.photoMgr.DeletePhoto(photo); err != nil {
+			continue
+		}
+		deleted++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": fmt.Sprintf("%d photo(s) deleted", deleted),
+		"deleted": deleted,
 	})
 }
