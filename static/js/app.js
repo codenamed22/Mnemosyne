@@ -12,11 +12,16 @@ let isDragging = false;
 let dragStart = { x: 0, y: 0 };
 let imageOffset = { x: 0, y: 0 };
 
+// Selection state
+let selectMode = false;
+let selectedPhotos = new Set();
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupUpload();
     setupViewer();
+    setupSelection();
     loadPhotos();
 });
 
@@ -28,6 +33,7 @@ function setupTabs() {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             currentTab = tab.dataset.tab;
+            exitSelectMode();
             loadPhotos();
         });
     });
@@ -91,7 +97,16 @@ function renderGallery() {
     currentPhotos.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
 
     gallery.innerHTML = currentPhotos.map((photo, i) => `
-        <div class="photo-card" onclick="openViewer(${i})">
+        <div class="photo-card ${selectedPhotos.has(photo.id) ? 'selected' : ''}" 
+             data-photo-id="${photo.id}"
+             onclick="${selectMode ? `togglePhotoSelection(${photo.id})` : `openViewer(${i})`}">
+            ${selectMode ? `
+                <div class="photo-checkbox ${selectedPhotos.has(photo.id) ? 'checked' : ''}" onclick="event.stopPropagation(); togglePhotoSelection(${photo.id})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                </div>
+            ` : ''}
             <img src="${esc(photo.thumbnail_url)}" alt="${esc(photo.filename)}" loading="lazy">
             <div class="photo-card-overlay">
                 <div class="photo-card-name">${esc(photo.filename)}</div>
@@ -404,4 +419,231 @@ function formatSize(bytes) {
     const units = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+// ==================== SELECTION ====================
+
+function setupSelection() {
+    document.getElementById('selectBtn')?.addEventListener('click', toggleSelectMode);
+    document.getElementById('cancelSelectBtn')?.addEventListener('click', exitSelectMode);
+    document.getElementById('selectAllBtn')?.addEventListener('click', selectAll);
+    document.getElementById('deselectAllBtn')?.addEventListener('click', deselectAll);
+    document.getElementById('bulkDownloadBtn')?.addEventListener('click', bulkDownload);
+    document.getElementById('bulkShareBtn')?.addEventListener('click', () => bulkShare(true));
+    document.getElementById('bulkUnshareBtn')?.addEventListener('click', () => bulkShare(false));
+    document.getElementById('bulkDeleteBtn')?.addEventListener('click', bulkDelete);
+}
+
+function toggleSelectMode() {
+    selectMode = !selectMode;
+    const selectBtn = document.getElementById('selectBtn');
+    const selectionBar = document.getElementById('selectionBar');
+    
+    if (selectMode) {
+        selectBtn.classList.add('active');
+        selectBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            Cancel
+        `;
+        selectionBar.style.display = 'flex';
+    } else {
+        exitSelectMode();
+    }
+    renderGallery();
+}
+
+function exitSelectMode() {
+    selectMode = false;
+    selectedPhotos.clear();
+    
+    const selectBtn = document.getElementById('selectBtn');
+    const selectionBar = document.getElementById('selectionBar');
+    
+    if (selectBtn) {
+        selectBtn.classList.remove('active');
+        selectBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 11 12 14 22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            Select
+        `;
+    }
+    if (selectionBar) {
+        selectionBar.style.display = 'none';
+    }
+    
+    updateSelectionCount();
+    renderGallery();
+}
+
+function togglePhotoSelection(photoId) {
+    if (selectedPhotos.has(photoId)) {
+        selectedPhotos.delete(photoId);
+    } else {
+        selectedPhotos.add(photoId);
+    }
+    updateSelectionCount();
+    renderGallery();
+}
+
+function selectAll() {
+    currentPhotos.forEach(p => selectedPhotos.add(p.id));
+    updateSelectionCount();
+    renderGallery();
+}
+
+function deselectAll() {
+    selectedPhotos.clear();
+    updateSelectionCount();
+    renderGallery();
+}
+
+function updateSelectionCount() {
+    const countEl = document.getElementById('selectionCount');
+    if (countEl) {
+        const count = selectedPhotos.size;
+        countEl.textContent = `${count} selected`;
+    }
+    
+    // Enable/disable bulk action buttons based on selection
+    const hasSelection = selectedPhotos.size > 0;
+    document.getElementById('bulkDownloadBtn')?.classList.toggle('disabled', !hasSelection);
+    document.getElementById('bulkShareBtn')?.classList.toggle('disabled', !hasSelection);
+    document.getElementById('bulkUnshareBtn')?.classList.toggle('disabled', !hasSelection);
+    document.getElementById('bulkDeleteBtn')?.classList.toggle('disabled', !hasSelection);
+}
+
+async function bulkDownload() {
+    if (selectedPhotos.size === 0) {
+        alert('Please select photos to download');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/photos/bulk/download', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ photo_ids: Array.from(selectedPhotos) })
+        });
+
+        if (!response.ok) throw new Error('Download failed');
+
+        // Get filename from Content-Disposition header or use default
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = 'mnemosyne_photos.zip';
+        if (disposition) {
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            if (match) filename = match[1];
+        }
+
+        // Create blob and download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+
+        exitSelectMode();
+    } catch (error) {
+        console.error('Bulk download error:', error);
+        alert('Failed to download photos');
+    }
+}
+
+async function bulkShare(share) {
+    if (selectedPhotos.size === 0) {
+        alert('Please select photos to ' + (share ? 'share' : 'unshare'));
+        return;
+    }
+
+    // Only allow sharing own photos
+    const ownPhotos = currentPhotos.filter(p => 
+        selectedPhotos.has(p.id) && p.user_id === currentUserID
+    );
+
+    if (ownPhotos.length === 0) {
+        alert('You can only share/unshare your own photos');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/photos/bulk/share', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                photo_ids: ownPhotos.map(p => p.id),
+                share: share
+            })
+        });
+
+        if (!response.ok) throw new Error('Share operation failed');
+
+        const result = await response.json();
+        alert(result.message);
+
+        exitSelectMode();
+        loadPhotos();
+    } catch (error) {
+        console.error('Bulk share error:', error);
+        alert('Failed to ' + (share ? 'share' : 'unshare') + ' photos');
+    }
+}
+
+async function bulkDelete() {
+    if (selectedPhotos.size === 0) {
+        alert('Please select photos to delete');
+        return;
+    }
+
+    // Filter to only photos user can delete (own or admin)
+    const deletablePhotos = currentPhotos.filter(p => 
+        selectedPhotos.has(p.id) && (p.user_id === currentUserID || isAdmin)
+    );
+
+    if (deletablePhotos.length === 0) {
+        alert('You can only delete your own photos');
+        return;
+    }
+
+    const count = deletablePhotos.length;
+    if (!confirm(`Are you sure you want to delete ${count} photo${count > 1 ? 's' : ''}? This cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/photos/bulk/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                photo_ids: deletablePhotos.map(p => p.id)
+            })
+        });
+
+        if (!response.ok) throw new Error('Delete operation failed');
+
+        const result = await response.json();
+        alert(result.message);
+
+        exitSelectMode();
+        loadPhotos();
+    } catch (error) {
+        console.error('Bulk delete error:', error);
+        alert('Failed to delete photos');
+    }
 }

@@ -353,6 +353,11 @@ func (app *App) SetupRoutes() http.Handler {
 	mux.HandleFunc("DELETE /api/photos/{photoID}", app.HandleDeletePhoto)
 	mux.HandleFunc("POST /api/photos/{photoID}/share", app.HandleSharePhoto)
 
+	// Bulk operations
+	mux.HandleFunc("POST /api/photos/bulk/share", app.HandleBulkShare)
+	mux.HandleFunc("POST /api/photos/bulk/download", app.HandleBulkDownload)
+	mux.HandleFunc("POST /api/photos/bulk/delete", app.HandleBulkDelete)
+
 	// Admin API routes
 	mux.HandleFunc("GET /api/admin/users", app.HandleAPIGetUsers)
 	mux.HandleFunc("DELETE /api/admin/users/{userID}", app.HandleAPIDeleteUser)
