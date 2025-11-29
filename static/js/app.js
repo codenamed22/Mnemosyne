@@ -16,6 +16,11 @@ let imageOffset = { x: 0, y: 0 };
 let selectMode = false;
 let selectedPhotos = new Set();
 
+// Device detection
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const canShare = navigator.share && navigator.canShare;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
@@ -218,6 +223,7 @@ function setupViewer() {
     document.getElementById('viewerZoomReset')?.addEventListener('click', resetZoom);
     document.getElementById('viewerShare')?.addEventListener('click', toggleShare);
     document.getElementById('viewerDelete')?.addEventListener('click', deletePhoto);
+    document.getElementById('viewerSave')?.addEventListener('click', saveToPhotos);
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
@@ -303,6 +309,18 @@ function openViewer(index) {
     const downloadBtn = document.getElementById('viewerDownload');
     downloadBtn.href = photo.original_url;
     downloadBtn.download = photo.filename;
+
+    // On iOS, show save button instead of download (goes to Photos app via share sheet)
+    const saveBtn = document.getElementById('viewerSave');
+    if (saveBtn) {
+        if (isIOS && canShare) {
+            saveBtn.style.display = 'flex';
+            downloadBtn.style.display = 'none';
+        } else {
+            saveBtn.style.display = 'none';
+            downloadBtn.style.display = 'flex';
+        }
+    }
 
     const shareBtn = document.getElementById('viewerShare');
     if (photo.user_id === currentUserID) {
@@ -403,6 +421,40 @@ async function deletePhoto() {
         renderGallery();
     } catch (error) {
         alert('Failed to delete photo');
+    }
+}
+
+// Save to Photos (iOS) - Uses Web Share API to open share sheet
+async function saveToPhotos() {
+    if (currentPhotoIndex < 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+
+    try {
+        // Fetch the image as a blob
+        const response = await fetch(photo.original_url);
+        const blob = await response.blob();
+
+        // Create a file from the blob
+        const file = new File([blob], photo.filename, { type: blob.type });
+
+        // Check if we can share files
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: photo.filename
+            });
+        } else {
+            // Fallback: open image in new tab for long-press saving
+            window.open(photo.original_url, '_blank');
+            alert('Long-press the image and select "Add to Photos" to save');
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Save error:', error);
+            // Fallback
+            window.open(photo.original_url, '_blank');
+            alert('Long-press the image and select "Add to Photos" to save');
+        }
     }
 }
 
