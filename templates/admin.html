@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Mnemosyne Photo Cloud</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <h1>⚙️ Admin Panel</h1>
+                <div class="header-user">
+                    <span class="username">{{.Username}}</span>
+                    <a href="/" class="btn-secondary btn-small">Gallery</a>
+                    <a href="/logout" class="btn-secondary btn-small">Logout</a>
+                </div>
+            </div>
+        </header>
+        
+        <main class="main-content admin-content">
+            <!-- Stats Section -->
+            <section class="admin-section">
+                <h2>System Stats</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalUsers">-</div>
+                        <div class="stat-label">Total Users</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalPhotos">-</div>
+                        <div class="stat-label">Total Photos</div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Users Section -->
+            <section class="admin-section">
+                <h2>Manage Users</h2>
+                <div id="usersList" class="users-list">
+                    <div class="loading">Loading users...</div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content confirm-modal">
+            <h3 id="confirmTitle">Confirm Action</h3>
+            <p id="confirmMessage"></p>
+            <div class="modal-actions">
+                <button id="confirmCancel" class="btn-secondary">Cancel</button>
+                <button id="confirmOk" class="btn-danger">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <input type="hidden" id="csrfToken" value="{{.CSRFToken}}">
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>
+
