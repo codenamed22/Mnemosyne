@@ -3,25 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Mnemosyne Photo Cloud</title>
+    <title>Register - Mnemosyne</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-box">
-            <h1>📸 Mnemosyne</h1>
-            <p class="subtitle">Create Your Account</p>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="auth-logo">📸</div>
+                <h1 class="auth-title">Create Account</h1>
+                <p class="auth-subtitle">Join your family photo cloud</p>
+            </div>
             
             {{if .Error}}
-            <div class="error-message">
-                {{.Error}}
-            </div>
+            <div class="auth-error">{{.Error}}</div>
             {{end}}
             
             <form method="POST" action="/register">
                 <div class="form-group">
-                    <label for="username">Username</label>
+                    <label class="form-label" for="username">Username</label>
                     <input 
+                        class="form-input"
                         type="text" 
                         id="username" 
                         name="username" 
@@ -31,46 +33,49 @@
                         minlength="3"
                         maxlength="32"
                         pattern="[a-zA-Z0-9_]+"
-                        title="Letters, numbers, and underscores only"
+                        placeholder="Choose a username"
                     >
                 </div>
                 
                 <div class="form-group">
-                    <label for="password">Password</label>
+                    <label class="form-label" for="password">Password</label>
                     <input 
+                        class="form-input"
                         type="password" 
                         id="password" 
                         name="password" 
                         required 
                         autocomplete="new-password"
                         minlength="6"
+                        placeholder="Create a password"
                     >
                 </div>
                 
                 <div class="form-group">
-                    <label for="confirm_password">Confirm Password</label>
+                    <label class="form-label" for="confirm_password">Confirm Password</label>
                     <input 
+                        class="form-input"
                         type="password" 
                         id="confirm_password" 
                         name="confirm_password" 
                         required 
                         autocomplete="new-password"
                         minlength="6"
+                        placeholder="Confirm your password"
                     >
                 </div>
                 
-                <button type="submit" class="btn-primary">Create Account</button>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
             </form>
             
-            <p class="help-text">
-                Already have an account? <a href="/login">Login</a>
-            </p>
+            <div class="auth-footer">
+                Already have an account? <a href="/login">Sign in</a>
+            </div>
             
-            <p class="help-text note">
-                Note: The first user to register becomes the admin.
-            </p>
+            <div class="auth-note">
+                First user becomes administrator
+            </div>
         </div>
     </div>
 </body>
 </html>
-

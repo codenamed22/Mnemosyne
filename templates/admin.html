@@ -3,57 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Mnemosyne Photo Cloud</title>
+    <title>Admin - Mnemosyne</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="app-container">
-        <header class="app-header">
-            <div class="header-content">
-                <h1>⚙️ Admin Panel</h1>
-                <div class="header-user">
-                    <span class="username">{{.Username}}</span>
-                    <a href="/" class="btn-secondary btn-small">Gallery</a>
-                    <a href="/logout" class="btn-secondary btn-small">Logout</a>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-inner">
+                <a href="/" class="header-brand">
+                    <span>⚙️</span>
+                    <span>Admin</span>
+                </a>
+                <div class="header-actions">
+                    <span class="header-user">{{.Username}}</span>
+                    <a href="/" class="btn btn-ghost btn-sm">Gallery</a>
+                    <a href="/logout" class="btn btn-ghost btn-sm">Logout</a>
                 </div>
             </div>
         </header>
         
-        <main class="main-content admin-content">
-            <!-- Stats Section -->
-            <section class="admin-section">
-                <h2>System Stats</h2>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value" id="totalUsers">-</div>
-                        <div class="stat-label">Total Users</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="totalPhotos">-</div>
-                        <div class="stat-label">Total Photos</div>
+        <!-- Main Content -->
+        <main class="main">
+            <div class="admin-grid">
+                <!-- Stats -->
+                <div class="admin-card">
+                    <h2 class="admin-card-title">Overview</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalUsers">-</div>
+                            <div class="stat-label">Users</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalPhotos">-</div>
+                            <div class="stat-label">Photos</div>
+                        </div>
                     </div>
                 </div>
-            </section>
-            
-            <!-- Users Section -->
-            <section class="admin-section">
-                <h2>Manage Users</h2>
-                <div id="usersList" class="users-list">
-                    <div class="loading">Loading users...</div>
+                
+                <!-- Users -->
+                <div class="admin-card">
+                    <h2 class="admin-card-title">Users</h2>
+                    <div id="usersList">
+                        <div class="loading">Loading users...</div>
+                    </div>
                 </div>
-            </section>
+            </div>
         </main>
     </div>
     
     <!-- Confirm Modal -->
-    <div id="confirmModal" class="modal" style="display: none;">
-        <div class="modal-overlay"></div>
-        <div class="modal-content confirm-modal">
-            <h3 id="confirmTitle">Confirm Action</h3>
-            <p id="confirmMessage"></p>
-            <div class="modal-actions">
-                <button id="confirmCancel" class="btn-secondary">Cancel</button>
-                <button id="confirmOk" class="btn-danger">Confirm</button>
+    <div id="confirmModal" class="confirm-modal" style="display: none;">
+        <div class="confirm-card">
+            <h3 class="confirm-title" id="confirmTitle">Confirm</h3>
+            <p class="confirm-text" id="confirmMessage"></p>
+            <div class="confirm-actions">
+                <button id="confirmCancel" class="btn btn-secondary">Cancel</button>
+                <button id="confirmOk" class="btn btn-danger">Delete</button>
             </div>
         </div>
     </div>
@@ -62,4 +68,3 @@
     <script src="/static/js/admin.js"></script>
 </body>
 </html>
-

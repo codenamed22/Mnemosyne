@@ -3,55 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Mnemosyne Photo Cloud</title>
+    <title>Login - Mnemosyne</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-box">
-            <h1>📸 Mnemosyne</h1>
-            <p class="subtitle">Family Photo Cloud</p>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="auth-logo">📸</div>
+                <h1 class="auth-title">Mnemosyne</h1>
+                <p class="auth-subtitle">Sign in to your photo cloud</p>
+            </div>
             
             {{if .Error}}
-            <div class="error-message">
-                {{.Error}}
-            </div>
+            <div class="auth-error">{{.Error}}</div>
             {{end}}
             
             <form method="POST" action="/login">
                 <div class="form-group">
-                    <label for="username">Username</label>
+                    <label class="form-label" for="username">Username</label>
                     <input 
+                        class="form-input"
                         type="text" 
                         id="username" 
                         name="username" 
                         required 
                         autofocus
                         autocomplete="username"
+                        placeholder="Enter your username"
                     >
                 </div>
                 
                 <div class="form-group">
-                    <label for="password">Password</label>
+                    <label class="form-label" for="password">Password</label>
                     <input 
+                        class="form-input"
                         type="password" 
                         id="password" 
                         name="password" 
                         required 
                         autocomplete="current-password"
+                        placeholder="Enter your password"
                     >
                 </div>
                 
-                <button type="submit" class="btn-primary">Login</button>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
             </form>
             
-            <p class="help-text">
-                Don't have an account? <a href="/register">Register</a>
-            </p>
+            <div class="auth-footer">
+                Don't have an account? <a href="/register">Create one</a>
+            </div>
             
-            <p class="help-text">
-                Access is restricted to your local network only.
-            </p>
+            <div class="auth-note">
+                Access restricted to local network only
+            </div>
         </div>
     </div>
 </body>

@@ -1,21 +1,19 @@
-// Admin Panel JavaScript
+// Mnemosyne Admin
 
 const csrfToken = document.getElementById('csrfToken')?.value || '';
 let confirmCallback = null;
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     loadUsers();
-    setupConfirmModal();
+    setupConfirm();
 });
 
-// Load system stats
 async function loadStats() {
     try {
         const response = await fetch('/api/admin/stats');
-        if (!response.ok) throw new Error('Failed to load stats');
-
+        if (!response.ok) throw new Error('Failed');
+        
         const stats = await response.json();
         document.getElementById('totalUsers').textContent = stats.total_users;
         document.getElementById('totalPhotos').textContent = stats.total_photos;
@@ -24,67 +22,58 @@ async function loadStats() {
     }
 }
 
-// Load users list
 async function loadUsers() {
-    const usersList = document.getElementById('usersList');
+    const container = document.getElementById('usersList');
 
     try {
         const response = await fetch('/api/admin/users');
-        if (!response.ok) throw new Error('Failed to load users');
+        if (!response.ok) throw new Error('Failed');
 
         const users = await response.json();
-        displayUsers(users);
-    } catch (error) {
-        console.error('Error loading users:', error);
-        usersList.innerHTML = '<div class="error">Failed to load users</div>';
-    }
-}
+        
+        if (!users?.length) {
+            container.innerHTML = '<p style="color: var(--text-muted);">No users found</p>';
+            return;
+        }
 
-// Display users
-function displayUsers(users) {
-    const usersList = document.getElementById('usersList');
-
-    if (!users || users.length === 0) {
-        usersList.innerHTML = '<p>No users found.</p>';
-        return;
-    }
-
-    usersList.innerHTML = `
-        <table class="users-table">
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Role</th>
-                    <th>Photos</th>
-                    <th>Joined</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${users.map(user => `
-                    <tr data-user-id="${user.id}">
-                        <td>${escapeHtml(user.username)}</td>
-                        <td>
-                            <span class="role-badge ${user.role}">${user.role}</span>
-                        </td>
-                        <td>${user.photo_count}</td>
-                        <td>${formatDate(user.created_at)}</td>
-                        <td class="actions">
-                            <button class="btn-small btn-secondary" onclick="toggleRole(${user.id}, '${user.role}')">
-                                ${user.role === 'admin' ? 'Make User' : 'Make Admin'}
-                            </button>
-                            <button class="btn-small btn-danger" onclick="confirmDeleteUser(${user.id}, '${escapeHtml(user.username)}')">
-                                Delete
-                            </button>
-                        </td>
+        container.innerHTML = `
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Photos</th>
+                        <th>Joined</th>
+                        <th></th>
                     </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
+                </thead>
+                <tbody>
+                    ${users.map(user => `
+                        <tr>
+                            <td>${esc(user.username)}</td>
+                            <td><span class="role-badge ${user.role}">${user.role}</span></td>
+                            <td>${user.photo_count}</td>
+                            <td>${formatDate(user.created_at)}</td>
+                            <td>
+                                <div class="table-actions">
+                                    <button class="btn btn-ghost btn-sm" onclick="toggleRole(${user.id}, '${user.role}')">
+                                        ${user.role === 'admin' ? 'Make User' : 'Make Admin'}
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" onclick="confirmDelete(${user.id}, '${esc(user.username)}')">
+                                        Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        container.innerHTML = '<p style="color: var(--danger);">Failed to load users</p>';
+    }
 }
 
-// Toggle user role
 async function toggleRole(userId, currentRole) {
     const newRole = currentRole === 'admin' ? 'user' : 'admin';
 
@@ -98,92 +87,64 @@ async function toggleRole(userId, currentRole) {
             body: JSON.stringify({ role: newRole })
         });
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(error);
-        }
-
+        if (!response.ok) throw new Error(await response.text());
         loadUsers();
     } catch (error) {
-        console.error('Error updating role:', error);
-        alert('Failed to update role: ' + error.message);
+        alert('Failed to update role');
     }
 }
 
-// Confirm delete user
-function confirmDeleteUser(userId, username) {
-    showConfirm(
-        'Delete User',
-        `Are you sure you want to delete user "${username}"? All their photos will also be deleted.`,
-        () => deleteUser(userId)
-    );
+function confirmDelete(userId, username) {
+    document.getElementById('confirmMessage').textContent = 
+        `Delete user "${username}" and all their photos?`;
+    document.getElementById('confirmModal').style.display = 'flex';
+    confirmCallback = () => deleteUser(userId);
 }
 
-// Delete user
 async function deleteUser(userId) {
     try {
         const response = await fetch(`/api/admin/users/${userId}`, {
             method: 'DELETE',
-            headers: {
-                'X-CSRF-Token': csrfToken
-            }
+            headers: { 'X-CSRF-Token': csrfToken }
         });
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(error);
-        }
-
+        if (!response.ok) throw new Error(await response.text());
+        
         loadUsers();
         loadStats();
     } catch (error) {
-        console.error('Error deleting user:', error);
-        alert('Failed to delete user: ' + error.message);
+        alert('Failed to delete user');
     }
 }
 
-// Setup confirm modal
-function setupConfirmModal() {
+function setupConfirm() {
     const modal = document.getElementById('confirmModal');
-    const overlay = modal.querySelector('.modal-overlay');
-    const cancelBtn = document.getElementById('confirmCancel');
-    const okBtn = document.getElementById('confirmOk');
+    
+    document.getElementById('confirmCancel')?.addEventListener('click', () => {
+        modal.style.display = 'none';
+        confirmCallback = null;
+    });
 
-    overlay.addEventListener('click', hideConfirm);
-    cancelBtn.addEventListener('click', hideConfirm);
-    okBtn.addEventListener('click', () => {
-        if (confirmCallback) {
-            confirmCallback();
+    document.getElementById('confirmOk')?.addEventListener('click', () => {
+        if (confirmCallback) confirmCallback();
+        modal.style.display = 'none';
+        confirmCallback = null;
+    });
+
+    modal?.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+            confirmCallback = null;
         }
-        hideConfirm();
     });
 }
 
-// Show confirm modal
-function showConfirm(title, message, callback) {
-    const modal = document.getElementById('confirmModal');
-    document.getElementById('confirmTitle').textContent = title;
-    document.getElementById('confirmMessage').textContent = message;
-    confirmCallback = callback;
-    modal.style.display = 'block';
-}
-
-// Hide confirm modal
-function hideConfirm() {
-    const modal = document.getElementById('confirmModal');
-    modal.style.display = 'none';
-    confirmCallback = null;
-}
-
-// Utility functions
-function escapeHtml(text) {
+function esc(str) {
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = str;
     return div.innerHTML;
 }
 
 function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+    return new Date(dateString).toLocaleDateString();
 }
-
