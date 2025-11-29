@@ -1,17 +1,21 @@
-# 📸 Mnemosyne - Local Photo Cloud
+# Mnemosyne - Local Photo Cloud
 
 A secure, self-hosted photo storage solution for your home network. Upload, browse, and manage your photos from any device on your WiFi.
 
 ## Features
 
-- **🔒 Secure**: Password-protected with HTTPS encryption
-- **📱 Mobile-Friendly**: Works great on phones, tablets, and computers
-- **🚀 Fast**: Automatic thumbnail generation for quick browsing
-- **💾 Simple**: Single executable, zero dependencies after building
-- **🌐 Local Network Only**: Accessible only on your home WiFi
-- **🎨 Modern UI**: Clean, dark-themed interface
-- **📤 Easy Upload**: Drag-and-drop or click to browse
-- **🗑️ Full Control**: Upload, browse, download, and delete photos
+- **Secure**: Password-protected with HTTPS encryption
+- **Mobile-Friendly**: Works great on phones, tablets, and computers
+- **Fast**: Automatic thumbnail generation for quick browsing
+- **Simple**: Single executable, zero dependencies after building
+- **Local Network Only**: Accessible only on your home WiFi
+- **Easy Upload**: Drag-and-drop or click to browse
+- **Full Control**: Upload, browse, download, and delete photos
+
+<img width="1141" height="602" alt="Screenshot 2025-11-29 104149" src="https://github.com/user-attachments/assets/6f7e6494-939e-49a7-8af7-1cb984615c2a" />
+
+<img width="1273" height="522" alt="Screenshot 2025-11-29 104200" src="https://github.com/user-attachments/assets/dc1090eb-4359-43ec-89cc-7083b8223ecd" />
+
 
 ## Security Features
 
