@@ -68,20 +68,55 @@
         </main>
     </div>
     
-    <!-- Photo Modal -->
-    <div id="photoModal" class="modal" style="display: none;">
-        <div class="modal-overlay"></div>
-        <div class="modal-content">
-            <button class="modal-close">&times;</button>
-            <img id="modalImage" src="" alt="">
-            <div class="modal-info">
-                <span id="modalFilename"></span>
-                <span id="modalOwner" class="photo-owner"></span>
+    <!-- Photo Viewer (Lightbox) -->
+    <div id="photoViewer" class="photo-viewer" style="display: none;">
+        <div class="viewer-overlay"></div>
+        
+        <!-- Top Bar -->
+        <div class="viewer-topbar">
+            <div class="viewer-info">
+                <span id="viewerFilename" class="viewer-filename"></span>
+                <span id="viewerOwner" class="viewer-owner"></span>
             </div>
-            <div class="modal-actions">
-                <a id="downloadBtn" href="" download class="btn-secondary">Download</a>
-                <button id="shareBtn" class="btn-secondary" style="display: none;">Share to Family</button>
-                <button id="deleteBtn" class="btn-danger">Delete</button>
+            <div class="viewer-controls">
+                <button id="viewerZoomIn" class="viewer-btn" title="Zoom In">🔍+</button>
+                <button id="viewerZoomOut" class="viewer-btn" title="Zoom Out">🔍−</button>
+                <button id="viewerZoomReset" class="viewer-btn" title="Reset Zoom">↺</button>
+                <button id="viewerClose" class="viewer-btn viewer-close-btn" title="Close (Esc)">✕</button>
+            </div>
+        </div>
+        
+        <!-- Navigation Arrows -->
+        <button id="viewerPrev" class="viewer-nav viewer-prev" title="Previous (←)">‹</button>
+        <button id="viewerNext" class="viewer-nav viewer-next" title="Next (→)">›</button>
+        
+        <!-- Image Container -->
+        <div class="viewer-image-container">
+            <div class="viewer-loading" id="viewerLoading">
+                <div class="spinner"></div>
+                <span>Loading...</span>
+            </div>
+            <img id="viewerImage" class="viewer-image" src="" alt="" draggable="false">
+        </div>
+        
+        <!-- Bottom Bar -->
+        <div class="viewer-bottombar">
+            <div class="viewer-counter">
+                <span id="viewerCounter">1 / 1</span>
+            </div>
+            <div class="viewer-actions">
+                <a id="viewerDownload" href="" download class="viewer-action-btn">
+                    <span class="action-icon">⬇</span>
+                    <span class="action-text">Download</span>
+                </a>
+                <button id="viewerShare" class="viewer-action-btn" style="display: none;">
+                    <span class="action-icon">🔗</span>
+                    <span class="action-text">Share</span>
+                </button>
+                <button id="viewerDelete" class="viewer-action-btn viewer-delete-btn">
+                    <span class="action-icon">🗑</span>
+                    <span class="action-text">Delete</span>
+                </button>
             </div>
         </div>
     </div>

@@ -6,13 +6,17 @@ const isAdmin = document.getElementById('isAdmin')?.value === 'true';
 
 let currentTab = 'my-photos';
 let currentPhotos = [];
-let currentPhoto = null;
+let currentPhotoIndex = -1;
+let zoomLevel = 1;
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let imageOffset = { x: 0, y: 0 };
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     setupTabHandlers();
     setupUploadHandlers();
-    setupModalHandlers();
+    setupViewerHandlers();
     loadPhotos();
 });
 
@@ -106,7 +110,7 @@ function displayPhotos(photos) {
     // Sort by upload date (newest first)
     photos.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
 
-    gallery.innerHTML = photos.map(photo => {
+    gallery.innerHTML = photos.map((photo, index) => {
         const safeFilename = escapeAttr(photo.filename);
         const displayFilename = escapeHtml(photo.filename);
         const ownerBadge = (currentTab !== 'my-photos' && photo.username) 
@@ -115,7 +119,7 @@ function displayPhotos(photos) {
         const sharedBadge = photo.is_shared ? '<span class="photo-badge shared">Shared</span>' : '';
 
         return `
-            <div class="photo-card" data-photo-id="${photo.id}" onclick="openPhotoModal(${photo.id})">
+            <div class="photo-card" data-index="${index}" onclick="openViewer(${index})">
                 <img src="${escapeAttr(photo.thumbnail_url)}" alt="${safeFilename}" loading="lazy">
                 <div class="photo-info">
                     <div class="photo-filename">${displayFilename}</div>
@@ -238,145 +242,315 @@ async function uploadFile(file) {
     return await response.json();
 }
 
-// Setup modal handlers
-function setupModalHandlers() {
-    const modal = document.getElementById('photoModal');
-    const modalOverlay = document.querySelector('.modal-overlay');
-    const modalClose = document.querySelector('.modal-close');
-    const deleteBtn = document.getElementById('deleteBtn');
-    const shareBtn = document.getElementById('shareBtn');
+// ==================== PHOTO VIEWER ====================
 
-    modalOverlay?.addEventListener('click', closePhotoModal);
-    modalClose?.addEventListener('click', closePhotoModal);
-    deleteBtn?.addEventListener('click', deleteCurrentPhoto);
-    shareBtn?.addEventListener('click', toggleSharePhoto);
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.style.display !== 'none') {
-            closePhotoModal();
+function setupViewerHandlers() {
+    const viewer = document.getElementById('photoViewer');
+    const viewerImage = document.getElementById('viewerImage');
+    
+    // Close button and overlay
+    document.getElementById('viewerClose')?.addEventListener('click', closeViewer);
+    document.querySelector('.viewer-overlay')?.addEventListener('click', closeViewer);
+    
+    // Navigation
+    document.getElementById('viewerPrev')?.addEventListener('click', () => navigatePhoto(-1));
+    document.getElementById('viewerNext')?.addEventListener('click', () => navigatePhoto(1));
+    
+    // Zoom controls
+    document.getElementById('viewerZoomIn')?.addEventListener('click', () => zoom(0.25));
+    document.getElementById('viewerZoomOut')?.addEventListener('click', () => zoom(-0.25));
+    document.getElementById('viewerZoomReset')?.addEventListener('click', resetZoom);
+    
+    // Actions
+    document.getElementById('viewerShare')?.addEventListener('click', toggleShareCurrentPhoto);
+    document.getElementById('viewerDelete')?.addEventListener('click', deleteCurrentPhoto);
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', handleViewerKeyboard);
+    
+    // Mouse wheel zoom
+    viewerImage?.addEventListener('wheel', (e) => {
+        if (viewer.style.display === 'none') return;
+        e.preventDefault();
+        zoom(e.deltaY > 0 ? -0.1 : 0.1);
+    });
+    
+    // Image drag for panning when zoomed
+    viewerImage?.addEventListener('mousedown', startDrag);
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('mouseup', endDrag);
+    
+    // Touch support
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartDist = 0;
+    
+    viewerImage?.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        } else if (e.touches.length === 2) {
+            // Pinch to zoom
+            touchStartDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
         }
+    });
+    
+    viewerImage?.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && touchStartDist > 0) {
+            e.preventDefault();
+            const currentDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const delta = (currentDist - touchStartDist) / 200;
+            zoom(delta);
+            touchStartDist = currentDist;
+        }
+    });
+    
+    viewerImage?.addEventListener('touchend', (e) => {
+        if (e.changedTouches.length === 1 && zoomLevel <= 1) {
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const diffX = touchEndX - touchStartX;
+            const diffY = touchEndY - touchStartY;
+            
+            // Swipe detection
+            if (Math.abs(diffX) > 50 && Math.abs(diffY) < 100) {
+                if (diffX > 0) {
+                    navigatePhoto(-1); // Swipe right = previous
+                } else {
+                    navigatePhoto(1); // Swipe left = next
+                }
+            }
+        }
+        touchStartDist = 0;
+    });
+    
+    // Image load handler
+    viewerImage?.addEventListener('load', () => {
+        document.getElementById('viewerLoading').style.display = 'none';
+        viewerImage.style.opacity = '1';
     });
 }
 
-// Open photo modal
-function openPhotoModal(photoId) {
-    const photo = currentPhotos.find(p => p.id === photoId);
-    if (!photo) return;
+function handleViewerKeyboard(e) {
+    const viewer = document.getElementById('photoViewer');
+    if (viewer.style.display === 'none') return;
+    
+    switch (e.key) {
+        case 'Escape':
+            closeViewer();
+            break;
+        case 'ArrowLeft':
+            navigatePhoto(-1);
+            break;
+        case 'ArrowRight':
+            navigatePhoto(1);
+            break;
+        case '+':
+        case '=':
+            zoom(0.25);
+            break;
+        case '-':
+            zoom(-0.25);
+            break;
+        case '0':
+            resetZoom();
+            break;
+    }
+}
 
-    currentPhoto = photo;
-
-    const modal = document.getElementById('photoModal');
-    const modalImage = document.getElementById('modalImage');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const deleteBtn = document.getElementById('deleteBtn');
-    const shareBtn = document.getElementById('shareBtn');
-    const modalFilename = document.getElementById('modalFilename');
-    const modalOwner = document.getElementById('modalOwner');
-
-    modalImage.src = photo.original_url;
+function openViewer(index) {
+    if (index < 0 || index >= currentPhotos.length) return;
+    
+    currentPhotoIndex = index;
+    const photo = currentPhotos[index];
+    
+    const viewer = document.getElementById('photoViewer');
+    const viewerImage = document.getElementById('viewerImage');
+    const viewerLoading = document.getElementById('viewerLoading');
+    
+    // Reset zoom
+    resetZoom();
+    
+    // Show loading
+    viewerLoading.style.display = 'flex';
+    viewerImage.style.opacity = '0';
+    
+    // Set image source
+    viewerImage.src = photo.original_url;
+    
+    // Update info
+    document.getElementById('viewerFilename').textContent = photo.filename;
+    
+    const ownerEl = document.getElementById('viewerOwner');
+    if (photo.username && photo.user_id !== currentUserID) {
+        ownerEl.textContent = `by ${photo.username}`;
+        ownerEl.style.display = 'inline';
+    } else {
+        ownerEl.style.display = 'none';
+    }
+    
+    // Update counter
+    document.getElementById('viewerCounter').textContent = `${index + 1} / ${currentPhotos.length}`;
+    
+    // Update download link
+    const downloadBtn = document.getElementById('viewerDownload');
     downloadBtn.href = photo.original_url;
     downloadBtn.download = photo.filename;
-    modalFilename.textContent = photo.filename;
-
-    // Show owner if not own photo
-    if (photo.username && photo.user_id !== currentUserID) {
-        modalOwner.textContent = `by ${photo.username}`;
-        modalOwner.style.display = 'inline';
-    } else {
-        modalOwner.style.display = 'none';
-    }
-
-    // Show/hide share button (only for own photos)
+    
+    // Show/hide share button
+    const shareBtn = document.getElementById('viewerShare');
     if (photo.user_id === currentUserID) {
-        shareBtn.style.display = 'inline-block';
-        shareBtn.textContent = photo.is_shared ? 'Unshare from Family' : 'Share to Family';
+        shareBtn.style.display = 'flex';
+        shareBtn.querySelector('.action-text').textContent = photo.is_shared ? 'Unshare' : 'Share';
     } else {
         shareBtn.style.display = 'none';
     }
-
-    // Show/hide delete button (owner or admin)
+    
+    // Show/hide delete button
+    const deleteBtn = document.getElementById('viewerDelete');
     if (photo.user_id === currentUserID || isAdmin) {
-        deleteBtn.style.display = 'inline-block';
+        deleteBtn.style.display = 'flex';
     } else {
         deleteBtn.style.display = 'none';
     }
-
-    modal.style.display = 'block';
+    
+    // Update navigation buttons
+    document.getElementById('viewerPrev').style.visibility = index > 0 ? 'visible' : 'hidden';
+    document.getElementById('viewerNext').style.visibility = index < currentPhotos.length - 1 ? 'visible' : 'hidden';
+    
+    // Show viewer
+    viewer.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 }
 
-// Close photo modal
-function closePhotoModal() {
-    const modal = document.getElementById('photoModal');
-    modal.style.display = 'none';
-    currentPhoto = null;
+function closeViewer() {
+    const viewer = document.getElementById('photoViewer');
+    viewer.style.display = 'none';
+    document.body.style.overflow = '';
+    currentPhotoIndex = -1;
+    resetZoom();
 }
 
-// Toggle share status
-async function toggleSharePhoto() {
-    if (!currentPhoto) return;
+function navigatePhoto(direction) {
+    const newIndex = currentPhotoIndex + direction;
+    if (newIndex >= 0 && newIndex < currentPhotos.length) {
+        openViewer(newIndex);
+    }
+}
 
+function zoom(delta) {
+    zoomLevel = Math.max(0.5, Math.min(5, zoomLevel + delta));
+    applyZoom();
+}
+
+function resetZoom() {
+    zoomLevel = 1;
+    imageOffset = { x: 0, y: 0 };
+    applyZoom();
+}
+
+function applyZoom() {
+    const viewerImage = document.getElementById('viewerImage');
+    viewerImage.style.transform = `scale(${zoomLevel}) translate(${imageOffset.x}px, ${imageOffset.y}px)`;
+    viewerImage.style.cursor = zoomLevel > 1 ? 'grab' : 'default';
+}
+
+function startDrag(e) {
+    if (zoomLevel <= 1) return;
+    isDragging = true;
+    dragStart = { x: e.clientX - imageOffset.x, y: e.clientY - imageOffset.y };
+    document.getElementById('viewerImage').style.cursor = 'grabbing';
+}
+
+function drag(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    imageOffset = {
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+    };
+    applyZoom();
+}
+
+function endDrag() {
+    isDragging = false;
+    if (zoomLevel > 1) {
+        document.getElementById('viewerImage').style.cursor = 'grab';
+    }
+}
+
+async function toggleShareCurrentPhoto() {
+    if (currentPhotoIndex < 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+    
     try {
-        const response = await fetch(`/api/photos/${currentPhoto.id}/share`, {
+        const response = await fetch(`/api/photos/${photo.id}/share`, {
             method: 'POST',
-            headers: {
-                'X-CSRF-Token': csrfToken
-            }
+            headers: { 'X-CSRF-Token': csrfToken }
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to update sharing');
-        }
-
+        
+        if (!response.ok) throw new Error('Failed to update sharing');
+        
         const result = await response.json();
-        currentPhoto.is_shared = result.is_shared;
-
-        const shareBtn = document.getElementById('shareBtn');
-        shareBtn.textContent = result.is_shared ? 'Unshare from Family' : 'Share to Family';
-
-        // Update the photo in the list
-        const photoInList = currentPhotos.find(p => p.id === currentPhoto.id);
-        if (photoInList) {
-            photoInList.is_shared = result.is_shared;
-        }
-
-        // Refresh display
+        photo.is_shared = result.is_shared;
+        
+        // Update button text
+        document.getElementById('viewerShare').querySelector('.action-text').textContent = 
+            result.is_shared ? 'Unshare' : 'Share';
+        
+        // Refresh gallery
         displayPhotos(currentPhotos);
-
+        
     } catch (error) {
         console.error('Error sharing photo:', error);
         showError('Failed to update sharing');
     }
 }
 
-// Delete current photo
 async function deleteCurrentPhoto() {
-    if (!currentPhoto) return;
-
-    if (!confirm(`Are you sure you want to delete ${currentPhoto.filename}?`)) {
+    if (currentPhotoIndex < 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+    
+    if (!confirm(`Are you sure you want to delete "${photo.filename}"?`)) {
         return;
     }
-
+    
     try {
-        const response = await fetch(`/api/photos/${currentPhoto.id}`, {
+        const response = await fetch(`/api/photos/${photo.id}`, {
             method: 'DELETE',
-            headers: {
-                'X-CSRF-Token': csrfToken
-            }
+            headers: { 'X-CSRF-Token': csrfToken }
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to delete photo');
+        
+        if (!response.ok) throw new Error('Failed to delete photo');
+        
+        // Remove from array
+        currentPhotos.splice(currentPhotoIndex, 1);
+        
+        if (currentPhotos.length === 0) {
+            closeViewer();
+            displayPhotos(currentPhotos);
+        } else if (currentPhotoIndex >= currentPhotos.length) {
+            openViewer(currentPhotos.length - 1);
+            displayPhotos(currentPhotos);
+        } else {
+            openViewer(currentPhotoIndex);
+            displayPhotos(currentPhotos);
         }
-
-        closePhotoModal();
-        loadPhotos();
+        
     } catch (error) {
         console.error('Error deleting photo:', error);
         showError('Failed to delete photo');
     }
 }
 
-// Utility functions
+// ==================== UTILITIES ====================
+
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
