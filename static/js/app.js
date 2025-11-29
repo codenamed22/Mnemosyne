@@ -484,6 +484,17 @@ function setupSelection() {
     document.getElementById('bulkShareBtn')?.addEventListener('click', () => bulkShare(true));
     document.getElementById('bulkUnshareBtn')?.addEventListener('click', () => bulkShare(false));
     document.getElementById('bulkDeleteBtn')?.addEventListener('click', bulkDelete);
+
+    // On iOS, change download button text to "Save"
+    if (isIOS && canShare) {
+        const downloadBtn = document.getElementById('bulkDownloadBtn');
+        if (downloadBtn) {
+            const textSpan = downloadBtn.querySelector('span');
+            if (textSpan) {
+                textSpan.textContent = 'Save';
+            }
+        }
+    }
 }
 
 function toggleSelectMode() {
@@ -574,6 +585,13 @@ async function bulkDownload() {
         return;
     }
 
+    // On iOS, use Web Share API to save to Photos
+    if (isIOS && canShare) {
+        await bulkSaveToPhotos();
+        return;
+    }
+
+    // Regular download (creates zip file)
     try {
         const response = await fetch('/api/photos/bulk/download', {
             method: 'POST',
@@ -609,6 +627,87 @@ async function bulkDownload() {
     } catch (error) {
         console.error('Bulk download error:', error);
         alert('Failed to download photos');
+    }
+}
+
+// Bulk save to Photos (iOS) - Uses Web Share API
+async function bulkSaveToPhotos() {
+    const selectedPhotosList = currentPhotos.filter(p => selectedPhotos.has(p.id));
+    
+    if (selectedPhotosList.length === 0) {
+        alert('Please select photos to save');
+        return;
+    }
+
+    try {
+        // Show progress
+        const count = selectedPhotosList.length;
+        
+        // Fetch all images as files
+        const files = [];
+        for (let i = 0; i < selectedPhotosList.length; i++) {
+            const photo = selectedPhotosList[i];
+            try {
+                const response = await fetch(photo.original_url);
+                const blob = await response.blob();
+                const file = new File([blob], photo.filename, { type: blob.type });
+                files.push(file);
+            } catch (e) {
+                console.error('Failed to fetch:', photo.filename, e);
+            }
+        }
+
+        if (files.length === 0) {
+            alert('Failed to load photos');
+            return;
+        }
+
+        // Try to share all files at once
+        if (navigator.canShare && navigator.canShare({ files })) {
+            await navigator.share({
+                files: files,
+                title: `${files.length} Photos`
+            });
+            exitSelectMode();
+        } else if (files.length === 1) {
+            // Single file fallback
+            await navigator.share({
+                files: [files[0]],
+                title: files[0].name
+            });
+            exitSelectMode();
+        } else {
+            // Can't share multiple files, offer to save one at a time
+            const saveOneByOne = confirm(
+                `iOS can't save ${files.length} photos at once.\n\n` +
+                `Would you like to save them one at a time?\n` +
+                `(Tap "Save Image" in each share sheet)`
+            );
+            
+            if (saveOneByOne) {
+                for (const file of files) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: file.name
+                        });
+                    } catch (e) {
+                        if (e.name === 'AbortError') {
+                            // User cancelled, ask if they want to continue
+                            if (!confirm('Continue saving remaining photos?')) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                exitSelectMode();
+            }
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Bulk save error:', error);
+            alert('Failed to save photos. Try selecting fewer photos.');
+        }
     }
 }
 
