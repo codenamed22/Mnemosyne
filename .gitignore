@@ -41,3 +41,6 @@ desktop.ini
 *.swo
 *~
 
+# Project documentation (internal use only)
+PROJECT_SUMMARY.md
+
