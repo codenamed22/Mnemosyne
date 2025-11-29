@@ -16,6 +16,11 @@ let imageOffset = { x: 0, y: 0 };
 let selectMode = false;
 let selectedPhotos = new Set();
 
+// Device detection
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const canShare = navigator.share && navigator.canShare;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
@@ -218,6 +223,7 @@ function setupViewer() {
     document.getElementById('viewerZoomReset')?.addEventListener('click', resetZoom);
     document.getElementById('viewerShare')?.addEventListener('click', toggleShare);
     document.getElementById('viewerDelete')?.addEventListener('click', deletePhoto);
+    document.getElementById('viewerSave')?.addEventListener('click', saveToPhotos);
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
@@ -303,6 +309,18 @@ function openViewer(index) {
     const downloadBtn = document.getElementById('viewerDownload');
     downloadBtn.href = photo.original_url;
     downloadBtn.download = photo.filename;
+
+    // On iOS, show save button instead of download (goes to Photos app via share sheet)
+    const saveBtn = document.getElementById('viewerSave');
+    if (saveBtn) {
+        if (isIOS && canShare) {
+            saveBtn.style.display = 'flex';
+            downloadBtn.style.display = 'none';
+        } else {
+            saveBtn.style.display = 'none';
+            downloadBtn.style.display = 'flex';
+        }
+    }
 
     const shareBtn = document.getElementById('viewerShare');
     if (photo.user_id === currentUserID) {
@@ -406,6 +424,40 @@ async function deletePhoto() {
     }
 }
 
+// Save to Photos (iOS) - Uses Web Share API to open share sheet
+async function saveToPhotos() {
+    if (currentPhotoIndex < 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+
+    try {
+        // Fetch the image as a blob
+        const response = await fetch(photo.original_url);
+        const blob = await response.blob();
+
+        // Create a file from the blob
+        const file = new File([blob], photo.filename, { type: blob.type });
+
+        // Check if we can share files
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: photo.filename
+            });
+        } else {
+            // Fallback: open image in new tab for long-press saving
+            window.open(photo.original_url, '_blank');
+            alert('Long-press the image and select "Add to Photos" to save');
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Save error:', error);
+            // Fallback
+            window.open(photo.original_url, '_blank');
+            alert('Long-press the image and select "Add to Photos" to save');
+        }
+    }
+}
+
 // ==================== UTILITIES ====================
 
 function esc(str) {
@@ -432,6 +484,17 @@ function setupSelection() {
     document.getElementById('bulkShareBtn')?.addEventListener('click', () => bulkShare(true));
     document.getElementById('bulkUnshareBtn')?.addEventListener('click', () => bulkShare(false));
     document.getElementById('bulkDeleteBtn')?.addEventListener('click', bulkDelete);
+
+    // On iOS, change download button text to "Save"
+    if (isIOS && canShare) {
+        const downloadBtn = document.getElementById('bulkDownloadBtn');
+        if (downloadBtn) {
+            const textSpan = downloadBtn.querySelector('span');
+            if (textSpan) {
+                textSpan.textContent = 'Save';
+            }
+        }
+    }
 }
 
 function toggleSelectMode() {
@@ -522,6 +585,13 @@ async function bulkDownload() {
         return;
     }
 
+    // On iOS, use Web Share API to save to Photos
+    if (isIOS && canShare) {
+        await bulkSaveToPhotos();
+        return;
+    }
+
+    // Regular download (creates zip file)
     try {
         const response = await fetch('/api/photos/bulk/download', {
             method: 'POST',
@@ -557,6 +627,87 @@ async function bulkDownload() {
     } catch (error) {
         console.error('Bulk download error:', error);
         alert('Failed to download photos');
+    }
+}
+
+// Bulk save to Photos (iOS) - Uses Web Share API
+async function bulkSaveToPhotos() {
+    const selectedPhotosList = currentPhotos.filter(p => selectedPhotos.has(p.id));
+    
+    if (selectedPhotosList.length === 0) {
+        alert('Please select photos to save');
+        return;
+    }
+
+    try {
+        // Show progress
+        const count = selectedPhotosList.length;
+        
+        // Fetch all images as files
+        const files = [];
+        for (let i = 0; i < selectedPhotosList.length; i++) {
+            const photo = selectedPhotosList[i];
+            try {
+                const response = await fetch(photo.original_url);
+                const blob = await response.blob();
+                const file = new File([blob], photo.filename, { type: blob.type });
+                files.push(file);
+            } catch (e) {
+                console.error('Failed to fetch:', photo.filename, e);
+            }
+        }
+
+        if (files.length === 0) {
+            alert('Failed to load photos');
+            return;
+        }
+
+        // Try to share all files at once
+        if (navigator.canShare && navigator.canShare({ files })) {
+            await navigator.share({
+                files: files,
+                title: `${files.length} Photos`
+            });
+            exitSelectMode();
+        } else if (files.length === 1) {
+            // Single file fallback
+            await navigator.share({
+                files: [files[0]],
+                title: files[0].name
+            });
+            exitSelectMode();
+        } else {
+            // Can't share multiple files, offer to save one at a time
+            const saveOneByOne = confirm(
+                `iOS can't save ${files.length} photos at once.\n\n` +
+                `Would you like to save them one at a time?\n` +
+                `(Tap "Save Image" in each share sheet)`
+            );
+            
+            if (saveOneByOne) {
+                for (const file of files) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: file.name
+                        });
+                    } catch (e) {
+                        if (e.name === 'AbortError') {
+                            // User cancelled, ask if they want to continue
+                            if (!confirm('Continue saving remaining photos?')) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                exitSelectMode();
+            }
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Bulk save error:', error);
+            alert('Failed to save photos. Try selecting fewer photos.');
+        }
     }
 }
 
