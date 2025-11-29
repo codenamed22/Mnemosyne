@@ -1,141 +1,102 @@
-# Mnemosyne - Local Photo Cloud
+# 📸 Mnemosyne - Family Photo Cloud
 
-A secure, self-hosted photo storage solution for your home network. Upload, browse, and manage your photos from any device on your WiFi.
+A secure, self-hosted photo storage solution for your home network. Multiple family members can upload, browse, and share photos - all accessible from any device on your WiFi.
 
 ## Features
 
-- **Secure**: Password-protected with HTTPS encryption
-- **Mobile-Friendly**: Works great on phones, tablets, and computers
-- **Fast**: Automatic thumbnail generation for quick browsing
-- **Simple**: Single executable, zero dependencies after building
-- **Local Network Only**: Accessible only on your home WiFi
-- **Easy Upload**: Drag-and-drop or click to browse
-- **Full Control**: Upload, browse, download, and delete photos
-
-<img width="1141" height="602" alt="Screenshot 2025-11-29 104149" src="https://github.com/user-attachments/assets/6f7e6494-939e-49a7-8af7-1cb984615c2a" />
-
-<img width="1273" height="522" alt="Screenshot 2025-11-29 104200" src="https://github.com/user-attachments/assets/dc1090eb-4359-43ec-89cc-7083b8223ecd" />
-
+- **👨‍👩‍👧‍👦 Multi-User**: Each family member gets their own account and private photos
+- **🔒 Secure**: HTTPS encryption, password protection, and role-based access
+- **👑 Admin Control**: First user becomes admin, can manage all users and photos
+- **🤝 Family Sharing**: Share photos to a family area visible to everyone
+- **📱 Mobile-Friendly**: Works great on phones, tablets, and computers
+- **🚀 Fast**: Automatic thumbnail generation for quick browsing
+- **💾 Simple**: Single executable, zero dependencies after building
 
 ## Security Features
 
-- **HTTPS with self-signed TLS certificate**
-- **bcrypt password hashing** (cost factor 12)
+- **Self-registration** with first user becoming admin
+- **HTTPS with self-signed TLS certificates**
+- **bcrypt password hashing**
 - **Brute force protection** (5 attempts → 15 min lockout)
 - **CSRF protection** on all state-changing operations
+- **Per-user photo storage** with access control
 - **Session management** with secure, HTTP-only cookies
-- **File validation** (magic byte checking, not just extensions)
-- **Security headers** (CSP, X-Frame-Options, etc.)
 
-## Windows Setup
+## Quick Start
 
-### Prerequisites
+### Windows Setup
 
-1. **Install Go** (if running from source or building yourself)
-   - Download from: https://go.dev/download/
-   - Install the Windows installer (.msi file)
-   - Verify installation: Open PowerShell and run `go version`
-
-### Installation
-
-#### Option 1: Run from Source (Development)
-
-1. **Clone or download this repository**
-   ```powershell
-   cd C:\Users\YourName\
-   git clone <repository-url> Mnemosyne
-   cd Mnemosyne
-   ```
-
-2. **Install dependencies**
-   ```powershell
-   go mod download
-   ```
-
-3. **Run the server**
-   ```powershell
-   go run .
-   ```
-
-#### Option 2: Build Executable (Production)
-
-1. **Navigate to the project directory**
-   ```powershell
-   cd C:\Users\YourName\Mnemosyne
-   ```
-
-2. **Build the executable**
+1. **Download or Build**
    ```powershell
    go build -o mnemosyne.exe .
    ```
 
-3. **Run the executable**
+2. **Run the Server**
    ```powershell
    .\mnemosyne.exe
    ```
 
-### First Run
+3. **Register Your Account**
+   - Open browser to `https://YOUR_PC_IP:8080`
+   - Accept the certificate warning
+   - Click "Register" to create your account
+   - **First user automatically becomes admin!**
 
-On first run, the application will:
-1. Prompt you to create a password (or generate a random one)
-2. Create a `config.json` file
-3. Generate a self-signed SSL certificate
-4. Create storage directories
+4. **Invite Family**
+   - Share the URL with family members on your WiFi
+   - They can register their own accounts
 
-Example first run:
+### Example First Run
+
 ```
-No config found. Creating new configuration...
-Enter password for photo cloud (or press Enter for random password): 
+🌟 Starting Mnemosyne Photo Cloud Server...
+No config found. Creating default configuration...
 Configuration saved to config.json
 
 Auto-generating self-signed certificate...
 ✓ Created: ./certs/server.crt
 ✓ Created: ./certs/server.key
-⚠ Browser will show security warning - this is normal for self-signed certs
-  Accept it once and you're set!
 
 ✓ Server is ready!
-  Listen address: 0.0.0.0:8080
   Protocol: HTTPS (secure)
 
 📱 Access from your devices at:
   https://192.168.1.100:8080
   https://localhost:8080
 
-⚠  Note: You'll see a security warning for the self-signed certificate.
-   This is normal - accept it to continue.
+👤 No users found. The first user to register will become admin.
 
 Press Ctrl+C to stop the server.
 ```
 
-### Accessing the App
+## User Roles
 
-1. **Find your PC's IP address**
-   - Open PowerShell: `ipconfig`
-   - Look for "IPv4 Address" under your WiFi adapter
-   - Example: `192.168.1.100`
+### Admin
+- View and delete **all** photos
+- Manage users (promote, demote, delete)
+- Access admin panel at `/admin`
 
-2. **Access from any device on your WiFi**
-   - On your phone/tablet/laptop browser, go to:
-   - `https://192.168.1.100:8080` (replace with your actual IP)
+### User
+- Upload, view, and delete **own** photos
+- Share photos to family area
+- View family area photos
 
-3. **Accept the security certificate**
-   - Your browser will show a security warning
-   - This is normal for self-signed certificates
-   - Click "Advanced" → "Proceed to site" (Chrome)
-   - Or "Advanced" → "Accept the Risk" (Firefox)
+## Photo Visibility
 
-4. **Login with your password**
+| Location | Who Can See |
+|----------|-------------|
+| **My Photos** | Only the owner |
+| **Family Area** | All logged-in users |
+| **All Photos** (Admin) | Admin only |
 
 ## Configuration
 
-The `config.json` file is created automatically on first run. You can edit it to customize settings:
+The `config.json` file is created automatically:
 
 ```json
 {
-  "password": "your-password-here",
   "port": 8080,
-  "storage_path": "./photos",
+  "storage_path": "./data",
   "bind_address": "0.0.0.0",
   "max_upload_mb": 50,
   "session_expiry_hours": 24,
@@ -149,67 +110,67 @@ The `config.json` file is created automatically on first run. You can edit it to
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `password` | (prompted) | Your login password |
 | `port` | 8080 | Port to run the server on |
-| `storage_path` | ./photos | Where photos are stored |
+| `storage_path` | ./data | Where data and photos are stored |
 | `bind_address` | 0.0.0.0 | Network interface to bind to |
 | `max_upload_mb` | 50 | Maximum file size per upload |
 | `session_expiry_hours` | 24 | How long sessions last |
 | `enable_https` | true | Use HTTPS (recommended) |
-| `cert_path` | ./certs/server.crt | TLS certificate path |
-| `key_path` | ./certs/server.key | TLS key path |
 
-## Running as a Windows Service (Optional)
+## Storage Structure
 
-To run Mnemosyne automatically when Windows starts:
+```
+data/
+├── mnemosyne.db          # SQLite database (users, photos metadata)
+└── users/
+    ├── 1/                # User ID folders
+    │   ├── originals/    # Full-size photos
+    │   └── thumbnails/   # 300px thumbnails
+    ├── 2/
+    └── ...
+```
+
+## API Endpoints
+
+### Public
+- `GET/POST /login` - Login page
+- `GET/POST /register` - Registration page
+- `GET /logout` - Logout
+
+### Protected (User)
+- `GET /` - Gallery page
+- `POST /api/photos/upload` - Upload photo
+- `GET /api/photos/my` - List own photos
+- `GET /api/photos/shared` - List family area photos
+- `GET /api/photos/original/{userID}/{filename}` - Get original
+- `GET /api/photos/thumbnail/{userID}/{filename}` - Get thumbnail
+- `DELETE /api/photos/{photoID}` - Delete photo
+- `POST /api/photos/{photoID}/share` - Toggle family sharing
+
+### Admin Only
+- `GET /admin` - Admin panel
+- `GET /api/photos/all` - List all photos
+- `GET /api/admin/users` - List all users
+- `DELETE /api/admin/users/{userID}` - Delete user
+- `PUT /api/admin/users/{userID}/role` - Change user role
+- `GET /api/admin/stats` - System stats
+
+## Running as a Windows Service
 
 ### Using Task Scheduler
 
 1. Open Task Scheduler (`taskschd.msc`)
-2. Create Basic Task → Name it "Mnemosyne Photo Cloud"
+2. Create Basic Task → "Mnemosyne Photo Cloud"
 3. Trigger: "When the computer starts"
-4. Action: "Start a program"
-5. Program: `C:\Users\YourName\Mnemosyne\mnemosyne.exe`
-6. Start in: `C:\Users\YourName\Mnemosyne`
-7. Finish and test by restarting your PC
+4. Action: Start `mnemosyne.exe`
+5. Start in: The folder containing the exe
 
-### Using NSSM (Non-Sucking Service Manager)
+### Using NSSM
 
-1. Download NSSM from: https://nssm.cc/download
-2. Open PowerShell as Administrator
-3. Run:
-   ```powershell
-   nssm install Mnemosyne "C:\Users\YourName\Mnemosyne\mnemosyne.exe"
-   nssm start Mnemosyne
-   ```
-
-## Storage Location
-
-By default, photos are stored in:
+```powershell
+nssm install Mnemosyne "C:\Path\To\mnemosyne.exe"
+nssm start Mnemosyne
 ```
-Mnemosyne/
-└── photos/
-    ├── originals/    (full-resolution photos)
-    └── thumbnails/   (300px thumbnails)
-```
-
-You can change the storage location in `config.json` to use a different drive:
-```json
-{
-  "storage_path": "D:\\Photos\\Mnemosyne"
-}
-```
-
-## Firewall
-
-Windows Firewall typically allows local network connections automatically. If you have issues accessing from other devices:
-
-1. Open "Windows Defender Firewall with Advanced Security"
-2. Inbound Rules → New Rule
-3. Port → TCP → Specific port: 8080
-4. Allow the connection
-5. Apply to Private networks only
-6. Name it "Mnemosyne Photo Cloud"
 
 ## Supported Image Formats
 
@@ -218,89 +179,79 @@ Windows Firewall typically allows local network connections automatically. If yo
 - GIF
 - WebP
 
-Files are validated by their actual content (magic bytes), not just the extension.
+Files are validated by content (magic bytes), not just extension.
 
 ## Browser Compatibility
 
-Works on all modern browsers:
 - Chrome/Edge
 - Firefox
 - Safari (iOS/macOS)
-- Samsung Internet (Android)
+- Samsung Internet
+
+## Building from Source
+
+```bash
+# Get dependencies
+go mod download
+
+# Build
+go build -o mnemosyne.exe .
+
+# Build optimized
+go build -ldflags="-s -w" -o mnemosyne.exe .
+```
+
+**Note**: Building requires CGO for SQLite. On Windows, you may need to install GCC (e.g., via MSYS2 or TDM-GCC).
 
 ## Troubleshooting
 
 ### Can't access from other devices
-
-1. Check your PC's IP address: `ipconfig` in PowerShell
-2. Verify both devices are on the same WiFi network
-3. Check Windows Firewall settings
-4. Make sure the server is running
+1. Check PC's IP: `ipconfig` in PowerShell
+2. Verify same WiFi network
+3. Check Windows Firewall (allow port 8080)
 
 ### Certificate warnings
+Normal for self-signed certificates. Accept to continue.
 
-This is normal for self-signed certificates. The connection is still encrypted. Accept the certificate in your browser.
+### Registration not working
+- Username: 3-32 characters, letters/numbers/underscores
+- Password: minimum 6 characters
 
-### Upload fails
-
-1. Check file size (default max: 50MB per file)
-2. Verify the file is a supported image format
-3. Check available disk space
-
-### Forgot password
-
-1. Stop the server
-2. Edit `config.json`
-3. Change the `password` field to a new password
-4. Delete the `password_hash` field
-5. Restart the server (it will hash the new password)
-
-## Building from Source
-
-```powershell
-# Get dependencies
-go mod download
-
-# Build for Windows
-go build -o mnemosyne.exe .
-
-# Build with optimizations (smaller binary)
-go build -ldflags="-s -w" -o mnemosyne.exe .
-```
+### SQLite build errors
+Install GCC for CGO:
+- Windows: Install TDM-GCC or MSYS2
+- Mac: `xcode-select --install`
+- Linux: `apt install gcc` or equivalent
 
 ## Project Structure
 
 ```
 Mnemosyne/
 ├── main.go              # Entry point
-├── config.go            # Configuration management
-├── auth.go              # Authentication & sessions
+├── config.go            # Configuration
+├── database.go          # SQLite database
+├── auth.go              # Authentication
 ├── photos.go            # Photo management
 ├── handlers.go          # HTTP handlers
-├── cert.go              # TLS certificate generation
-├── utils.go             # Utility functions
+├── cert.go              # TLS certificates
+├── utils.go             # Utilities
 ├── templates/
-│   ├── login.html       # Login page
-│   └── gallery.html     # Gallery interface
+│   ├── login.html
+│   ├── register.html
+│   ├── gallery.html
+│   └── admin.html
 ├── static/
-│   ├── css/
-│   │   └── style.css    # Styling
+│   ├── css/style.css
 │   └── js/
-│       └── app.js       # Frontend logic
-├── photos/              # Created at runtime
-├── certs/               # Created at runtime
-└── config.json          # Created at runtime
+│       ├── app.js
+│       └── admin.js
+└── data/                # Created at runtime
 ```
 
 ## License
 
-MIT License - Feel free to use and modify as needed.
-
-## Support
-
-For issues or questions, please open an issue on the repository.
+MIT License
 
 ---
 
-**Made with ❤️ for home network photo storage**
-
+**Made with ❤️ for family photo storage**

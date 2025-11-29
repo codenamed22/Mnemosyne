@@ -6,14 +6,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
 	sessionCookieName = "mnemosyne_session"
 	csrfTokenName     = "csrf_token"
-	bcryptCost        = 12
 	maxLoginAttempts  = 5
 	lockoutDuration   = 15 * time.Minute
 )
@@ -21,6 +18,9 @@ const (
 // Session represents a user session
 type Session struct {
 	Token     string
+	UserID    int64
+	Username  string
+	Role      string
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	CSRFToken string
@@ -36,80 +36,47 @@ type LoginAttempt struct {
 type SessionManager struct {
 	sessions      map[string]*Session
 	loginAttempts map[string]*LoginAttempt
-	passwordHash  string
 	sessionExpiry time.Duration
+	db            *Database
 	mu            sync.RWMutex
 }
 
 // NewSessionManager creates a new session manager
-func NewSessionManager(password string, sessionExpiryHours int) (*SessionManager, error) {
-	var hash string
-	var err error
-	
-	// If password is provided, hash it
-	if password != "" {
-		hash, err = hashPassword(password)
-		if err != nil {
-			return nil, fmt.Errorf("failed to hash password: %v", err)
-		}
-	}
-	
+func NewSessionManager(db *Database, sessionExpiryHours int) *SessionManager {
 	sm := &SessionManager{
 		sessions:      make(map[string]*Session),
 		loginAttempts: make(map[string]*LoginAttempt),
-		passwordHash:  hash,
 		sessionExpiry: time.Duration(sessionExpiryHours) * time.Hour,
+		db:            db,
 	}
-	
+
 	// Start cleanup goroutine
 	go sm.cleanupExpiredSessions()
-	
-	return sm, nil
-}
 
-// SetPasswordHash sets a pre-hashed password
-func (sm *SessionManager) SetPasswordHash(hash string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.passwordHash = hash
-}
-
-// hashPassword creates a bcrypt hash of the password
-func hashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
-	if err != nil {
-		return "", err
-	}
-	return string(hash), nil
-}
-
-// verifyPassword checks if the password matches the hash
-func verifyPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	return sm
 }
 
 // checkBruteForce checks if the IP is locked out due to too many attempts
 func (sm *SessionManager) checkBruteForce(ip string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	attempt, exists := sm.loginAttempts[ip]
 	if !exists {
 		return nil
 	}
-	
+
 	// Check if still locked out
 	if time.Now().Before(attempt.LockedUntil) {
 		remaining := time.Until(attempt.LockedUntil).Round(time.Second)
 		return fmt.Errorf("too many failed attempts, try again in %v", remaining)
 	}
-	
+
 	// Lockout expired, reset
 	if time.Now().After(attempt.LockedUntil) {
 		delete(sm.loginAttempts, ip)
 	}
-	
+
 	return nil
 }
 
@@ -117,15 +84,15 @@ func (sm *SessionManager) checkBruteForce(ip string) error {
 func (sm *SessionManager) recordFailedAttempt(ip string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	attempt, exists := sm.loginAttempts[ip]
 	if !exists {
 		attempt = &LoginAttempt{Count: 0}
 		sm.loginAttempts[ip] = attempt
 	}
-	
+
 	attempt.Count++
-	
+
 	// Lock out after max attempts
 	if attempt.Count >= maxLoginAttempts {
 		attempt.LockedUntil = time.Now().Add(lockoutDuration)
@@ -140,49 +107,58 @@ func (sm *SessionManager) resetFailedAttempts(ip string) {
 }
 
 // Login authenticates a user and creates a session
-func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, password string) error {
+func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username, password string) error {
 	ip := getClientIP(r)
-	
+
 	// Check brute force protection
 	if err := sm.checkBruteForce(ip); err != nil {
 		return err
 	}
-	
-	// Verify password
-	sm.mu.RLock()
-	hash := sm.passwordHash
-	sm.mu.RUnlock()
-	
-	if !verifyPassword(password, hash) {
-		sm.recordFailedAttempt(ip)
-		return fmt.Errorf("invalid password")
+
+	// Get user from database
+	user, err := sm.db.GetUserByUsername(username)
+	if err != nil {
+		return fmt.Errorf("authentication failed")
 	}
-	
+	if user == nil {
+		sm.recordFailedAttempt(ip)
+		return fmt.Errorf("invalid username or password")
+	}
+
+	// Verify password
+	if !user.VerifyPassword(password) {
+		sm.recordFailedAttempt(ip)
+		return fmt.Errorf("invalid username or password")
+	}
+
 	// Reset failed attempts on successful login
 	sm.resetFailedAttempts(ip)
-	
+
 	// Create session
 	token, err := generateRandomToken(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate session token: %v", err)
 	}
-	
+
 	csrfToken, err := generateRandomToken(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate CSRF token: %v", err)
 	}
-	
+
 	session := &Session{
 		Token:     token,
+		UserID:    user.ID,
+		Username:  user.Username,
+		Role:      user.Role,
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(sm.sessionExpiry),
 		CSRFToken: csrfToken,
 	}
-	
+
 	sm.mu.Lock()
 	sm.sessions[token] = session
 	sm.mu.Unlock()
-	
+
 	// Set session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -190,11 +166,39 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, password
 		Path:     "/",
 		MaxAge:   int(sm.sessionExpiry.Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil, // Set Secure flag if HTTPS
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 	})
-	
+
 	return nil
+}
+
+// Register creates a new user account
+func (sm *SessionManager) Register(username, password string) (*User, error) {
+	// Validate input
+	if len(username) < 3 || len(username) > 32 {
+		return nil, fmt.Errorf("username must be between 3 and 32 characters")
+	}
+	if len(password) < 6 {
+		return nil, fmt.Errorf("password must be at least 6 characters")
+	}
+
+	// Check if username already exists
+	existing, err := sm.db.GetUserByUsername(username)
+	if err != nil {
+		return nil, fmt.Errorf("registration failed")
+	}
+	if existing != nil {
+		return nil, fmt.Errorf("username already taken")
+	}
+
+	// Create user
+	user, err := sm.db.CreateUser(username, password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user: %v", err)
+	}
+
+	return user, nil
 }
 
 // Logout destroys a session
@@ -203,11 +207,11 @@ func (sm *SessionManager) Logout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	
+
 	sm.mu.Lock()
 	delete(sm.sessions, cookie.Value)
 	sm.mu.Unlock()
-	
+
 	// Clear cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -224,22 +228,22 @@ func (sm *SessionManager) ValidateSession(r *http.Request) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no session cookie")
 	}
-	
+
 	sm.mu.RLock()
 	session, exists := sm.sessions[cookie.Value]
 	sm.mu.RUnlock()
-	
+
 	if !exists {
 		return nil, fmt.Errorf("invalid session")
 	}
-	
+
 	if time.Now().After(session.ExpiresAt) {
 		sm.mu.Lock()
 		delete(sm.sessions, cookie.Value)
 		sm.mu.Unlock()
 		return nil, fmt.Errorf("session expired")
 	}
-	
+
 	return session, nil
 }
 
@@ -249,34 +253,39 @@ func (sm *SessionManager) ValidateCSRF(r *http.Request, session *Session) error 
 	if token == "" {
 		token = r.FormValue("csrf_token")
 	}
-	
+
 	if token == "" {
 		return fmt.Errorf("missing CSRF token")
 	}
-	
+
 	// Use constant-time comparison to prevent timing attacks
 	if subtle.ConstantTimeCompare([]byte(token), []byte(session.CSRFToken)) != 1 {
 		return fmt.Errorf("invalid CSRF token")
 	}
-	
+
 	return nil
+}
+
+// IsAdmin checks if the session user is an admin
+func (s *Session) IsAdmin() bool {
+	return s.Role == "admin"
 }
 
 // cleanupExpiredSessions periodically removes expired sessions
 func (sm *SessionManager) cleanupExpiredSessions() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		now := time.Now()
-		
+
 		sm.mu.Lock()
 		for token, session := range sm.sessions {
 			if now.After(session.ExpiresAt) {
 				delete(sm.sessions, token)
 			}
 		}
-		
+
 		// Also cleanup old login attempts
 		for ip, attempt := range sm.loginAttempts {
 			if now.After(attempt.LockedUntil.Add(1 * time.Hour)) {
@@ -294,14 +303,13 @@ func getClientIP(r *http.Request) string {
 	if ip != "" {
 		return ip
 	}
-	
+
 	// Check X-Real-IP header
 	ip = r.Header.Get("X-Real-IP")
 	if ip != "" {
 		return ip
 	}
-	
+
 	// Fall back to RemoteAddr
 	return r.RemoteAddr
 }
-

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Mnemosyne Photo Cloud</title>
+    <title>Register - Mnemosyne Photo Cloud</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="login-container">
         <div class="login-box">
             <h1>📸 Mnemosyne</h1>
-            <p class="subtitle">Family Photo Cloud</p>
+            <p class="subtitle">Create Your Account</p>
             
             {{if .Error}}
             <div class="error-message">
@@ -18,7 +18,7 @@
             </div>
             {{end}}
             
-            <form method="POST" action="/login">
+            <form method="POST" action="/register">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input 
@@ -28,6 +28,10 @@
                         required 
                         autofocus
                         autocomplete="username"
+                        minlength="3"
+                        maxlength="32"
+                        pattern="[a-zA-Z0-9_]+"
+                        title="Letters, numbers, and underscores only"
                     >
                 </div>
                 
@@ -38,21 +42,35 @@
                         id="password" 
                         name="password" 
                         required 
-                        autocomplete="current-password"
+                        autocomplete="new-password"
+                        minlength="6"
                     >
                 </div>
                 
-                <button type="submit" class="btn-primary">Login</button>
+                <div class="form-group">
+                    <label for="confirm_password">Confirm Password</label>
+                    <input 
+                        type="password" 
+                        id="confirm_password" 
+                        name="confirm_password" 
+                        required 
+                        autocomplete="new-password"
+                        minlength="6"
+                    >
+                </div>
+                
+                <button type="submit" class="btn-primary">Create Account</button>
             </form>
             
             <p class="help-text">
-                Don't have an account? <a href="/register">Register</a>
+                Already have an account? <a href="/login">Login</a>
             </p>
             
-            <p class="help-text">
-                Access is restricted to your local network only.
+            <p class="help-text note">
+                Note: The first user to register becomes the admin.
             </p>
         </div>
     </div>
 </body>
 </html>
+

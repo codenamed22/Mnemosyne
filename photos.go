@@ -8,8 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
+	"strconv"
 
 	"github.com/disintegration/imaging"
 )
@@ -18,367 +17,488 @@ const (
 	thumbnailSize = 300
 )
 
-// PhotoInfo represents metadata about a photo
-type PhotoInfo struct {
-	Filename    string    `json:"filename"`
-	Size        int64     `json:"size"`
-	UploadedAt  time.Time `json:"uploaded_at"`
-	ThumbnailURL string   `json:"thumbnail_url"`
-	OriginalURL  string   `json:"original_url"`
-}
-
 // PhotoManager handles photo operations
 type PhotoManager struct {
 	storagePath string
 	maxUploadMB int64
+	db          *Database
 }
 
 // NewPhotoManager creates a new photo manager
-func NewPhotoManager(storagePath string, maxUploadMB int64) *PhotoManager {
+func NewPhotoManager(storagePath string, maxUploadMB int64, db *Database) *PhotoManager {
 	return &PhotoManager{
 		storagePath: storagePath,
 		maxUploadMB: maxUploadMB,
+		db:          db,
 	}
 }
 
-// getOriginalsPath returns the path to the originals directory
-func (pm *PhotoManager) getOriginalsPath() string {
-	return filepath.Join(pm.storagePath, "originals")
+// getUserPath returns the storage path for a specific user
+func (pm *PhotoManager) getUserPath(userID int64) string {
+	return filepath.Join(pm.storagePath, "users", fmt.Sprintf("%d", userID))
 }
 
-// getThumbnailsPath returns the path to the thumbnails directory
-func (pm *PhotoManager) getThumbnailsPath() string {
-	return filepath.Join(pm.storagePath, "thumbnails")
+// getOriginalsPath returns the path to originals for a user
+func (pm *PhotoManager) getOriginalsPath(userID int64) string {
+	return filepath.Join(pm.getUserPath(userID), "originals")
 }
 
-// ListPhotos returns a list of all photos
-func (pm *PhotoManager) ListPhotos() ([]PhotoInfo, error) {
-	originalsPath := pm.getOriginalsPath()
-	
-	entries, err := os.ReadDir(originalsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read photos directory: %v", err)
+// getThumbnailsPath returns the path to thumbnails for a user
+func (pm *PhotoManager) getThumbnailsPath(userID int64) string {
+	return filepath.Join(pm.getUserPath(userID), "thumbnails")
+}
+
+// EnsureUserDirectories creates storage directories for a user
+func (pm *PhotoManager) EnsureUserDirectories(userID int64) error {
+	dirs := []string{
+		pm.getOriginalsPath(userID),
+		pm.getThumbnailsPath(userID),
 	}
-	
-	photos := make([]PhotoInfo, 0) // Initialize as empty slice, not nil
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %v", dir, err)
 		}
-		
-		if !isImageFile(entry.Name()) {
-			continue
-		}
-		
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		
-		photo := PhotoInfo{
-			Filename:     entry.Name(),
-			Size:         info.Size(),
-			UploadedAt:   info.ModTime(),
-			ThumbnailURL: "/api/photos/thumbnail/" + url.PathEscape(entry.Name()),
-			OriginalURL:  "/api/photos/original/" + url.PathEscape(entry.Name()),
-		}
-		
-		photos = append(photos, photo)
 	}
-	
-	return photos, nil
+
+	return nil
 }
 
-// SavePhoto saves an uploaded photo and generates a thumbnail
-func (pm *PhotoManager) SavePhoto(filename string, data []byte) error {
+// SavePhoto saves an uploaded photo for a user
+func (pm *PhotoManager) SavePhoto(filename string, data []byte, userID int64) (*Photo, error) {
 	// Validate file extension
 	if !isImageFile(filename) {
-		return fmt.Errorf("unsupported file type")
+		return nil, fmt.Errorf("unsupported file type")
 	}
-	
+
 	// Validate magic bytes
 	if _, err := validateImageMagicBytes(data); err != nil {
-		return fmt.Errorf("invalid image file: %v", err)
+		return nil, fmt.Errorf("invalid image file: %v", err)
 	}
-	
+
 	// Sanitize filename
 	filename = sanitizeFilename(filename)
-	
+
+	// Ensure user directories exist
+	if err := pm.EnsureUserDirectories(userID); err != nil {
+		return nil, err
+	}
+
 	// Check if file already exists, add suffix if needed
-	filename = pm.getUniqueFilename(filename)
-	
-	originalPath := filepath.Join(pm.getOriginalsPath(), filename)
-	thumbnailPath := filepath.Join(pm.getThumbnailsPath(), filename)
-	
+	filename = pm.getUniqueFilename(filename, userID)
+
+	originalPath := filepath.Join(pm.getOriginalsPath(userID), filename)
+	thumbnailPath := filepath.Join(pm.getThumbnailsPath(userID), filename)
+
 	// Save original
 	if err := os.WriteFile(originalPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to save photo: %v", err)
+		return nil, fmt.Errorf("failed to save photo: %v", err)
 	}
-	
+
 	// Generate thumbnail
 	if err := pm.generateThumbnail(originalPath, thumbnailPath); err != nil {
-		// Log error but don't fail - thumbnail generation is not critical
 		fmt.Printf("Warning: failed to generate thumbnail for %s: %v\n", filename, err)
 	}
-	
-	return nil
+
+	// Save to database
+	photo, err := pm.db.CreatePhoto(filename, userID, int64(len(data)))
+	if err != nil {
+		// Clean up files if database save fails
+		os.Remove(originalPath)
+		os.Remove(thumbnailPath)
+		return nil, err
+	}
+
+	return photo, nil
 }
 
 // generateThumbnail creates a thumbnail of the image
 func (pm *PhotoManager) generateThumbnail(srcPath, dstPath string) error {
-	// Open source image
 	src, err := imaging.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("failed to open image: %v", err)
 	}
-	
-	// Create thumbnail (fit to max dimension while maintaining aspect ratio)
+
 	thumbnail := imaging.Fit(src, thumbnailSize, thumbnailSize, imaging.Lanczos)
-	
-	// Save thumbnail
+
 	if err := imaging.Save(thumbnail, dstPath); err != nil {
 		return fmt.Errorf("failed to save thumbnail: %v", err)
 	}
-	
+
 	return nil
 }
 
-// getUniqueFilename returns a unique filename by adding a suffix if needed
-func (pm *PhotoManager) getUniqueFilename(filename string) string {
-	originalPath := filepath.Join(pm.getOriginalsPath(), filename)
-	
-	// If file doesn't exist, return as-is
+// getUniqueFilename returns a unique filename for a user
+func (pm *PhotoManager) getUniqueFilename(filename string, userID int64) string {
+	originalPath := filepath.Join(pm.getOriginalsPath(userID), filename)
+
 	if _, err := os.Stat(originalPath); os.IsNotExist(err) {
 		return filename
 	}
-	
-	// Add timestamp suffix
+
+	// Add counter suffix
 	ext := filepath.Ext(filename)
-	name := strings.TrimSuffix(filename, ext)
-	timestamp := time.Now().Unix()
-	
-	return fmt.Sprintf("%s_%d%s", name, timestamp, ext)
+	name := filename[:len(filename)-len(ext)]
+
+	for i := 1; i < 10000; i++ {
+		newFilename := fmt.Sprintf("%s_%d%s", name, i, ext)
+		newPath := filepath.Join(pm.getOriginalsPath(userID), newFilename)
+		if _, err := os.Stat(newPath); os.IsNotExist(err) {
+			return newFilename
+		}
+	}
+
+	return filename
 }
 
-// GetOriginal returns the path to an original photo
-func (pm *PhotoManager) GetOriginal(filename string) (string, error) {
-	// Sanitize filename to prevent path traversal
-	filename = filepath.Base(filename)
-	
-	if !isImageFile(filename) {
-		return "", fmt.Errorf("invalid file type")
-	}
-	
-	path := filepath.Join(pm.getOriginalsPath(), filename)
-	
-	// Check if file exists
+// GetOriginalPath returns the path to an original photo
+func (pm *PhotoManager) GetOriginalPath(photo *Photo) (string, error) {
+	path := filepath.Join(pm.getOriginalsPath(photo.UserID), photo.Filename)
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", fmt.Errorf("file not found")
 	}
-	
+
 	return path, nil
 }
 
-// GetThumbnail returns the path to a thumbnail
-func (pm *PhotoManager) GetThumbnail(filename string) (string, error) {
-	// Sanitize filename to prevent path traversal
-	filename = filepath.Base(filename)
-	
-	if !isImageFile(filename) {
-		return "", fmt.Errorf("invalid file type")
-	}
-	
-	path := filepath.Join(pm.getThumbnailsPath(), filename)
-	
-	// Check if file exists
+// GetThumbnailPath returns the path to a thumbnail
+func (pm *PhotoManager) GetThumbnailPath(photo *Photo) (string, error) {
+	path := filepath.Join(pm.getThumbnailsPath(photo.UserID), photo.Filename)
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Try to generate thumbnail from original
-		originalPath, err := pm.GetOriginal(filename)
+		// Try to regenerate thumbnail
+		originalPath, err := pm.GetOriginalPath(photo)
 		if err != nil {
 			return "", fmt.Errorf("file not found")
 		}
-		
+
 		if err := pm.generateThumbnail(originalPath, path); err != nil {
 			return "", fmt.Errorf("failed to generate thumbnail: %v", err)
 		}
 	}
-	
+
 	return path, nil
 }
 
-// DeletePhoto deletes a photo and its thumbnail
-func (pm *PhotoManager) DeletePhoto(filename string) error {
-	// Sanitize filename to prevent path traversal
-	filename = filepath.Base(filename)
-	
-	if !isImageFile(filename) {
-		return fmt.Errorf("invalid file type")
+// DeletePhoto deletes a photo and its files
+func (pm *PhotoManager) DeletePhoto(photo *Photo) error {
+	originalPath := filepath.Join(pm.getOriginalsPath(photo.UserID), photo.Filename)
+	thumbnailPath := filepath.Join(pm.getThumbnailsPath(photo.UserID), photo.Filename)
+
+	// Delete from database first
+	if err := pm.db.DeletePhoto(photo.ID); err != nil {
+		return fmt.Errorf("failed to delete photo record: %v", err)
 	}
-	
-	originalPath := filepath.Join(pm.getOriginalsPath(), filename)
-	thumbnailPath := filepath.Join(pm.getThumbnailsPath(), filename)
-	
-	// Delete original
-	if err := os.Remove(originalPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete photo: %v", err)
-	}
-	
-	// Delete thumbnail (ignore errors if doesn't exist)
+
+	// Delete files
+	os.Remove(originalPath)
 	os.Remove(thumbnailPath)
-	
+
 	return nil
 }
 
-// API Handler Functions
+// BuildPhotoURLs adds URL fields to a photo
+func (pm *PhotoManager) BuildPhotoURLs(photo *Photo) {
+	photo.ThumbnailURL = fmt.Sprintf("/api/photos/thumbnail/%d/%s", photo.UserID, url.PathEscape(photo.Filename))
+	photo.OriginalURL = fmt.Sprintf("/api/photos/original/%d/%s", photo.UserID, url.PathEscape(photo.Filename))
+}
+
+// API Handlers
 
 // HandleUpload handles photo upload requests
 func (app *App) HandleUpload(w http.ResponseWriter, r *http.Request) {
-	// Validate session
 	session, err := app.sessionMgr.ValidateSession(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
-	// Validate CSRF token
+
 	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return
 	}
-	
-	// Parse multipart form
+
 	if err := r.ParseMultipartForm(app.config.MaxUploadMB << 20); err != nil {
 		http.Error(w, "Failed to parse upload", http.StatusBadRequest)
 		return
 	}
-	
+
 	file, header, err := r.FormFile("photo")
 	if err != nil {
 		http.Error(w, "No file uploaded", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
-	
-	// Check file size
+
 	if header.Size > app.config.MaxUploadMB<<20 {
 		http.Error(w, fmt.Sprintf("File too large (max %dMB)", app.config.MaxUploadMB), http.StatusBadRequest)
 		return
 	}
-	
-	// Read file data
+
 	data, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "Failed to read file", http.StatusInternalServerError)
 		return
 	}
-	
-	// Save photo
-	if err := app.photoMgr.SavePhoto(header.Filename, data); err != nil {
+
+	photo, err := app.photoMgr.SavePhoto(header.Filename, data, session.UserID)
+	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save photo: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
+	app.photoMgr.BuildPhotoURLs(photo)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
 		"message": "Photo uploaded successfully",
+		"photo":   photo,
 	})
 }
 
-// HandleListPhotos handles photo listing requests
-func (app *App) HandleListPhotos(w http.ResponseWriter, r *http.Request) {
-	// Validate session
-	if _, err := app.sessionMgr.ValidateSession(r); err != nil {
+// HandleListMyPhotos lists photos for the current user
+func (app *App) HandleListMyPhotos(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
-	photos, err := app.photoMgr.ListPhotos()
+
+	photos, err := app.db.GetPhotosByUser(session.UserID)
 	if err != nil {
 		http.Error(w, "Failed to list photos", http.StatusInternalServerError)
 		return
 	}
-	
+
+	for _, photo := range photos {
+		app.photoMgr.BuildPhotoURLs(photo)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(photos)
+}
+
+// HandleListSharedPhotos lists photos in the family area
+func (app *App) HandleListSharedPhotos(w http.ResponseWriter, r *http.Request) {
+	_, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	photos, err := app.db.GetSharedPhotos()
+	if err != nil {
+		http.Error(w, "Failed to list photos", http.StatusInternalServerError)
+		return
+	}
+
+	for _, photo := range photos {
+		app.photoMgr.BuildPhotoURLs(photo)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(photos)
+}
+
+// HandleListAllPhotos lists all photos (admin only)
+func (app *App) HandleListAllPhotos(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if !session.IsAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	photos, err := app.db.GetAllPhotos()
+	if err != nil {
+		http.Error(w, "Failed to list photos", http.StatusInternalServerError)
+		return
+	}
+
+	for _, photo := range photos {
+		app.photoMgr.BuildPhotoURLs(photo)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(photos)
 }
 
 // HandleGetOriginal serves original photos
 func (app *App) HandleGetOriginal(w http.ResponseWriter, r *http.Request) {
-	// Validate session
-	if _, err := app.sessionMgr.ValidateSession(r); err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	
-	filename := r.PathValue("filename")
-	if filename == "" {
-		http.Error(w, "Missing filename", http.StatusBadRequest)
-		return
-	}
-	
-	path, err := app.photoMgr.GetOriginal(filename)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	
-	http.ServeFile(w, r, path)
-}
-
-// HandleGetThumbnail serves thumbnail images
-func (app *App) HandleGetThumbnail(w http.ResponseWriter, r *http.Request) {
-	// Validate session
-	if _, err := app.sessionMgr.ValidateSession(r); err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	
-	filename := r.PathValue("filename")
-	if filename == "" {
-		http.Error(w, "Missing filename", http.StatusBadRequest)
-		return
-	}
-	
-	path, err := app.photoMgr.GetThumbnail(filename)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	
-	http.ServeFile(w, r, path)
-}
-
-// HandleDeletePhoto handles photo deletion requests
-func (app *App) HandleDeletePhoto(w http.ResponseWriter, r *http.Request) {
-	// Validate session
 	session, err := app.sessionMgr.ValidateSession(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
-	// Validate CSRF token
+
+	userIDStr := r.PathValue("userID")
+	filename := r.PathValue("filename")
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get photo from database
+	photo, err := app.db.GetPhotoByFilename(filename, userID)
+	if err != nil || photo == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Check access: owner, shared, or admin
+	if photo.UserID != session.UserID && !photo.IsShared && !session.IsAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	path, err := app.photoMgr.GetOriginalPath(photo)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, path)
+}
+
+// HandleGetThumbnail serves thumbnail images
+func (app *App) HandleGetThumbnail(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userIDStr := r.PathValue("userID")
+	filename := r.PathValue("filename")
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get photo from database
+	photo, err := app.db.GetPhotoByFilename(filename, userID)
+	if err != nil || photo == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Check access: owner, shared, or admin
+	if photo.UserID != session.UserID && !photo.IsShared && !session.IsAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	path, err := app.photoMgr.GetThumbnailPath(photo)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, path)
+}
+
+// HandleDeletePhoto handles photo deletion
+func (app *App) HandleDeletePhoto(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return
 	}
-	
-	filename := r.PathValue("filename")
-	if filename == "" {
-		http.Error(w, "Missing filename", http.StatusBadRequest)
+
+	photoIDStr := r.PathValue("photoID")
+	photoID, err := strconv.ParseInt(photoIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid photo ID", http.StatusBadRequest)
 		return
 	}
-	
-	if err := app.photoMgr.DeletePhoto(filename); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to delete photo: %v", err), http.StatusInternalServerError)
+
+	photo, err := app.db.GetPhotoByID(photoID)
+	if err != nil || photo == nil {
+		http.NotFound(w, r)
 		return
 	}
-	
+
+	// Check access: owner or admin
+	if photo.UserID != session.UserID && !session.IsAdmin() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := app.photoMgr.DeletePhoto(photo); err != nil {
+		http.Error(w, "Failed to delete photo", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
+		"status":  "success",
 		"message": "Photo deleted successfully",
 	})
 }
 
+// HandleSharePhoto toggles photo sharing
+func (app *App) HandleSharePhoto(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	photoIDStr := r.PathValue("photoID")
+	photoID, err := strconv.ParseInt(photoIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid photo ID", http.StatusBadRequest)
+		return
+	}
+
+	photo, err := app.db.GetPhotoByID(photoID)
+	if err != nil || photo == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Only owner can share/unshare (admin can't share others' photos)
+	if photo.UserID != session.UserID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Toggle shared status
+	newShared := !photo.IsShared
+	if err := app.db.SetPhotoShared(photoID, newShared); err != nil {
+		http.Error(w, "Failed to update photo", http.StatusInternalServerError)
+		return
+	}
+
+	status := "unshared from"
+	if newShared {
+		status = "shared to"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "success",
+		"message":   fmt.Sprintf("Photo %s family area", status),
+		"is_shared": newShared,
+	})
+}
