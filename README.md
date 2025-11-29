@@ -22,6 +22,16 @@ A secure, self-hosted photo storage solution for your home network. Multiple fam
 - **Per-user photo storage** with access control
 - **Session management** with secure, HTTP-only cookies
 
+<img width="379" height="570" alt="image" src="https://github.com/user-attachments/assets/2bbc5cbe-a006-430d-a744-2d9bf3b49e47" />
+
+<img width="1500" height="431" alt="image" src="https://github.com/user-attachments/assets/6e9a3cab-28fa-4d0f-b1c9-bd6cfb68daa4" />
+
+<img width="1510" height="770" alt="image" src="https://github.com/user-attachments/assets/3350068c-b323-439e-a69e-3df00a5756be" />
+
+<img width="1510" height="770" alt="image" src="https://github.com/user-attachments/assets/5f1a19fa-01ae-47d1-9c35-f2402cb4a62e" />
+
+
+
 ## Quick Start
 
 ### Windows Setup
