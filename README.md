@@ -24,7 +24,7 @@ A secure, self-hosted photo storage solution for your home network. Multiple fam
 
 <img width="379" height="570" alt="image" src="https://github.com/user-attachments/assets/2bbc5cbe-a006-430d-a744-2d9bf3b49e47" />
 
-<img width="1500" height="431" alt="image" src="https://github.com/user-attachments/assets/6e9a3cab-28fa-4d0f-b1c9-bd6cfb68daa4" />
+<img width="1393" height="498" alt="image" src="https://github.com/user-attachments/assets/0f2ad050-14c1-4cbb-b07b-08720a099247" />
 
 <img width="1510" height="770" alt="image" src="https://github.com/user-attachments/assets/3350068c-b323-439e-a69e-3df00a5756be" />
 
