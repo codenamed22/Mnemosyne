@@ -16,8 +16,6 @@ var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 const (
 	sessionCookieName = "mnemosyne_session"
 	csrfTokenName     = "csrf_token"
-	maxLoginAttempts  = 5
-	lockoutDuration   = 15 * time.Minute
 )
 
 // Session represents a user session
@@ -99,8 +97,8 @@ func (sm *SessionManager) recordFailedAttempt(ip string) {
 	attempt.Count++
 
 	// Lock out after max attempts
-	if attempt.Count >= maxLoginAttempts {
-		attempt.LockedUntil = time.Now().Add(lockoutDuration)
+	if attempt.Count >= MaxLoginAttempts {
+		attempt.LockedUntil = time.Now().Add(time.Duration(LockoutMinutes) * time.Minute)
 	}
 }
 
@@ -140,12 +138,12 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 	sm.resetFailedAttempts(ip)
 
 	// Create session
-	token, err := generateRandomToken(32)
+	token, err := generateRandomToken(SessionTokenLength)
 	if err != nil {
 		return fmt.Errorf("failed to generate session token: %v", err)
 	}
 
-	csrfToken, err := generateRandomToken(32)
+	csrfToken, err := generateRandomToken(CSRFTokenLength)
 	if err != nil {
 		return fmt.Errorf("failed to generate CSRF token: %v", err)
 	}
@@ -286,7 +284,7 @@ func (s *Session) IsAdmin() bool {
 
 // cleanupExpiredSessions periodically removes expired sessions
 func (sm *SessionManager) cleanupExpiredSessions() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(time.Duration(SessionCleanupHours) * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -301,7 +299,7 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 
 		// Also cleanup old login attempts
 		for ip, attempt := range sm.loginAttempts {
-			if now.After(attempt.LockedUntil.Add(1 * time.Hour)) {
+			if now.After(attempt.LockedUntil.Add(time.Duration(SessionCleanupHours) * time.Hour)) {
 				delete(sm.loginAttempts, ip)
 			}
 		}

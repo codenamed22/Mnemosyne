@@ -15,9 +15,7 @@ import (
 	"github.com/disintegration/imaging"
 )
 
-const (
-	thumbnailSize = 300
-)
+// thumbnailSize is now defined in constants.go as ThumbnailSize
 
 // PhotoManager handles photo operations
 type PhotoManager struct {
@@ -121,7 +119,7 @@ func (pm *PhotoManager) generateThumbnail(srcPath, dstPath string) error {
 		return fmt.Errorf("failed to open image: %v", err)
 	}
 
-	thumbnail := imaging.Fit(src, thumbnailSize, thumbnailSize, imaging.Lanczos)
+	thumbnail := imaging.Fit(src, ThumbnailSize, ThumbnailSize, imaging.Lanczos)
 
 	if err := imaging.Save(thumbnail, dstPath); err != nil {
 		return fmt.Errorf("failed to save thumbnail: %v", err)
@@ -142,7 +140,7 @@ func (pm *PhotoManager) getUniqueFilename(filename string, userID int64) string 
 	ext := filepath.Ext(filename)
 	name := filename[:len(filename)-len(ext)]
 
-	for i := 1; i < 10000; i++ {
+	for i := 1; i < MaxFilenameCounter; i++ {
 		newFilename := fmt.Sprintf("%s_%d%s", name, i, ext)
 		newPath := filepath.Join(pm.getOriginalsPath(userID), newFilename)
 		if _, err := os.Stat(newPath); os.IsNotExist(err) {
@@ -689,7 +687,7 @@ func (app *App) HandleBulkShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit request body size
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodyBytes)
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -742,7 +740,7 @@ func (app *App) HandleBulkDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit request body size
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodyBytes)
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -838,7 +836,7 @@ func (app *App) HandleBulkDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit request body size
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodyBytes)
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1005,7 +1003,7 @@ func (app *App) HandleBulkArchive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit request body size
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodyBytes)
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1182,7 +1180,7 @@ func (app *App) HandleFindGroups(w http.ResponseWriter, r *http.Request) {
 	// Parse request body for threshold (with size limit)
 	var req FindGroupsRequest
 	if r.Body != nil {
-		r.Body = http.MaxBytesReader(w, r.Body, 1024) // 1KB limit for this simple JSON
+		r.Body = http.MaxBytesReader(w, r.Body, SmallJSONBodyBytes)
 		json.NewDecoder(r.Body).Decode(&req)
 	}
 
@@ -1290,7 +1288,7 @@ func (app *App) HandleAnalyzeGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit request body size (photo IDs array shouldn't be huge)
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodyBytes)
 
 	var req AnalyzeGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
