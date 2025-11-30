@@ -27,6 +27,11 @@ certs/
 # Dependency directories
 vendor/
 
+# Python virtual environment (embeddings service)
+embeddings/venv/
+embeddings/__pycache__/
+*.pyc
+
 # macOS
 .DS_Store
 

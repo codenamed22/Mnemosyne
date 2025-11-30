@@ -25,15 +25,24 @@ type User struct {
 
 // Photo represents photo metadata in the database
 type Photo struct {
-	ID          int64     `json:"id"`
-	Filename    string    `json:"filename"`
-	UserID      int64     `json:"user_id"`
-	Username    string    `json:"username,omitempty"`
-	IsShared    bool      `json:"is_shared"`
-	Size        int64     `json:"size"`
-	UploadedAt  time.Time `json:"uploaded_at"`
-	ThumbnailURL string   `json:"thumbnail_url"`
-	OriginalURL  string   `json:"original_url"`
+	ID           int64      `json:"id"`
+	Filename     string     `json:"filename"`
+	UserID       int64      `json:"user_id"`
+	Username     string     `json:"username,omitempty"`
+	IsShared     bool       `json:"is_shared"`
+	IsArchived   bool       `json:"is_archived"`
+	ArchivedAt   *time.Time `json:"archived_at,omitempty"`
+	Size         int64      `json:"size"`
+	UploadedAt   time.Time  `json:"uploaded_at"`
+	ThumbnailURL string     `json:"thumbnail_url"`
+	OriginalURL  string     `json:"original_url"`
+}
+
+// PhotoEmbedding represents a CLIP embedding for a photo
+type PhotoEmbedding struct {
+	PhotoID   int64     `json:"photo_id"`
+	Embedding []byte    `json:"embedding"` // JSON-encoded float64 array
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // NewDatabase creates and initializes the database
@@ -99,6 +108,29 @@ func (d *Database) createTables() error {
 	_, err = d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_photos_shared ON photos(is_shared)`)
 	if err != nil {
 		return fmt.Errorf("failed to create shared index: %v", err)
+	}
+
+	// Add archive columns if they don't exist (migration)
+	d.db.Exec(`ALTER TABLE photos ADD COLUMN is_archived BOOLEAN DEFAULT FALSE`)
+	d.db.Exec(`ALTER TABLE photos ADD COLUMN archived_at DATETIME`)
+
+	// Create archived photos index
+	_, err = d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_photos_archived ON photos(is_archived)`)
+	if err != nil {
+		return fmt.Errorf("failed to create archived index: %v", err)
+	}
+
+	// Photo embeddings table for CLIP vectors
+	_, err = d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS photo_embeddings (
+			photo_id INTEGER PRIMARY KEY,
+			embedding BLOB NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create photo_embeddings table: %v", err)
 	}
 
 	return nil
@@ -389,6 +421,169 @@ func (d *Database) GetUserPhotoCount(userID int64) (int, error) {
 func (d *Database) GetTotalPhotoCount() (int, error) {
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM photos").Scan(&count)
+	return count, err
+}
+
+// Archive methods
+
+// ArchivePhoto marks a photo as archived
+func (d *Database) ArchivePhoto(id int64) error {
+	_, err := d.db.Exec(
+		"UPDATE photos SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP WHERE id = ?",
+		id,
+	)
+	return err
+}
+
+// UnarchivePhoto restores a photo from archive
+func (d *Database) UnarchivePhoto(id int64) error {
+	_, err := d.db.Exec(
+		"UPDATE photos SET is_archived = FALSE, archived_at = NULL WHERE id = ?",
+		id,
+	)
+	return err
+}
+
+// GetArchivedPhotos returns all archived photos for a user
+func (d *Database) GetArchivedPhotos(userID int64) ([]*Photo, error) {
+	rows, err := d.db.Query(`
+		SELECT p.id, p.filename, p.user_id, u.username, p.is_shared, p.is_archived, p.archived_at, p.size, p.uploaded_at
+		FROM photos p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.user_id = ? AND p.is_archived = TRUE
+		ORDER BY p.archived_at DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query archived photos: %v", err)
+	}
+	defer rows.Close()
+
+	return d.scanPhotosWithArchive(rows)
+}
+
+// GetNonArchivedPhotos returns all non-archived photos for a user
+func (d *Database) GetNonArchivedPhotos(userID int64) ([]*Photo, error) {
+	rows, err := d.db.Query(`
+		SELECT p.id, p.filename, p.user_id, u.username, p.is_shared, COALESCE(p.is_archived, FALSE), p.archived_at, p.size, p.uploaded_at
+		FROM photos p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.user_id = ? AND (p.is_archived = FALSE OR p.is_archived IS NULL)
+		ORDER BY p.uploaded_at DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query photos: %v", err)
+	}
+	defer rows.Close()
+
+	return d.scanPhotosWithArchive(rows)
+}
+
+// Helper function to scan photos with archive fields
+func (d *Database) scanPhotosWithArchive(rows *sql.Rows) ([]*Photo, error) {
+	photos := make([]*Photo, 0)
+	for rows.Next() {
+		photo := &Photo{}
+		var archivedAt sql.NullTime
+		if err := rows.Scan(
+			&photo.ID, &photo.Filename, &photo.UserID, &photo.Username,
+			&photo.IsShared, &photo.IsArchived, &archivedAt, &photo.Size, &photo.UploadedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan photo: %v", err)
+		}
+		if archivedAt.Valid {
+			photo.ArchivedAt = &archivedAt.Time
+		}
+		photos = append(photos, photo)
+	}
+	return photos, nil
+}
+
+// Embedding methods
+
+// SaveEmbedding saves a CLIP embedding for a photo
+func (d *Database) SaveEmbedding(photoID int64, embedding []byte) error {
+	_, err := d.db.Exec(`
+		INSERT INTO photo_embeddings (photo_id, embedding) VALUES (?, ?)
+		ON CONFLICT(photo_id) DO UPDATE SET embedding = ?, created_at = CURRENT_TIMESTAMP
+	`, photoID, embedding, embedding)
+	return err
+}
+
+// GetEmbedding retrieves the embedding for a photo
+func (d *Database) GetEmbedding(photoID int64) ([]byte, error) {
+	var embedding []byte
+	err := d.db.QueryRow(
+		"SELECT embedding FROM photo_embeddings WHERE photo_id = ?",
+		photoID,
+	).Scan(&embedding)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get embedding: %v", err)
+	}
+
+	return embedding, nil
+}
+
+// GetAllEmbeddings retrieves embeddings for all non-archived photos of a user
+func (d *Database) GetAllEmbeddings(userID int64) (map[int64][]byte, error) {
+	rows, err := d.db.Query(`
+		SELECT pe.photo_id, pe.embedding
+		FROM photo_embeddings pe
+		JOIN photos p ON pe.photo_id = p.id
+		WHERE p.user_id = ? AND (p.is_archived = FALSE OR p.is_archived IS NULL)
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query embeddings: %v", err)
+	}
+	defer rows.Close()
+
+	embeddings := make(map[int64][]byte)
+	for rows.Next() {
+		var photoID int64
+		var embedding []byte
+		if err := rows.Scan(&photoID, &embedding); err != nil {
+			return nil, fmt.Errorf("failed to scan embedding: %v", err)
+		}
+		embeddings[photoID] = embedding
+	}
+
+	return embeddings, nil
+}
+
+// GetPhotosWithoutEmbeddings returns photos that don't have embeddings yet
+func (d *Database) GetPhotosWithoutEmbeddings(userID int64) ([]*Photo, error) {
+	rows, err := d.db.Query(`
+		SELECT p.id, p.filename, p.user_id, p.is_shared, p.size, p.uploaded_at
+		FROM photos p
+		LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
+		WHERE p.user_id = ? AND pe.photo_id IS NULL AND (p.is_archived = FALSE OR p.is_archived IS NULL)
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query photos: %v", err)
+	}
+	defer rows.Close()
+
+	return d.scanPhotos(rows)
+}
+
+// DeleteEmbedding deletes the embedding for a photo
+func (d *Database) DeleteEmbedding(photoID int64) error {
+	_, err := d.db.Exec("DELETE FROM photo_embeddings WHERE photo_id = ?", photoID)
+	return err
+}
+
+// GetEmbeddingCount returns the number of embeddings for a user
+func (d *Database) GetEmbeddingCount(userID int64) (int, error) {
+	var count int
+	err := d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM photo_embeddings pe
+		JOIN photos p ON pe.photo_id = p.id
+		WHERE p.user_id = ?
+	`, userID).Scan(&count)
 	return count, err
 }
 

@@ -358,6 +358,18 @@ func (app *App) SetupRoutes() http.Handler {
 	mux.HandleFunc("POST /api/photos/bulk/download", app.HandleBulkDownload)
 	mux.HandleFunc("POST /api/photos/bulk/delete", app.HandleBulkDelete)
 
+	// Archive operations
+	mux.HandleFunc("POST /api/photos/{photoID}/archive", app.HandleArchivePhoto)
+	mux.HandleFunc("POST /api/photos/{photoID}/unarchive", app.HandleUnarchivePhoto)
+	mux.HandleFunc("GET /api/photos/archived", app.HandleListArchivedPhotos)
+	mux.HandleFunc("POST /api/photos/bulk/archive", app.HandleBulkArchive)
+
+	// Photo Selector / AI Features
+	mux.HandleFunc("GET /api/organize/status", app.HandleOrganizeStatus)
+	mux.HandleFunc("POST /api/organize/generate-embeddings", app.HandleGenerateEmbeddings)
+	mux.HandleFunc("POST /api/organize/find-groups", app.HandleFindGroups)
+	mux.HandleFunc("POST /api/organize/analyze-group", app.HandleAnalyzeGroup)
+
 	// Admin API routes
 	mux.HandleFunc("GET /api/admin/users", app.HandleAPIGetUsers)
 	mux.HandleFunc("DELETE /api/admin/users/{userID}", app.HandleAPIDeleteUser)

@@ -1154,6 +1154,220 @@ a:hover {
 }
 
 /* ============================================
+   ORGANIZE SECTION
+   ============================================ */
+
+.organize-section {
+    max-width: 1000px;
+}
+
+.organize-status-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-xl);
+    margin-bottom: var(--space-xl);
+}
+
+.organize-status-card h2 {
+    font-size: 24px;
+    margin-bottom: var(--space-sm);
+}
+
+.organize-description {
+    color: var(--text-secondary);
+    margin-bottom: var(--space-lg);
+}
+
+.organize-status {
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.status-row:last-child {
+    border-bottom: none;
+}
+
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-success {
+    background: var(--success);
+    color: var(--white);
+}
+
+.status-error {
+    background: var(--danger);
+    color: var(--white);
+}
+
+.status-warning {
+    background: #f59e0b;
+    color: var(--black);
+}
+
+.status-unknown {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.organize-actions {
+    display: flex;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+/* Photo Groups */
+.photo-groups {
+    margin-top: var(--space-xl);
+}
+
+.photo-groups h3 {
+    font-size: 18px;
+    margin-bottom: var(--space-lg);
+    color: var(--text-secondary);
+}
+
+.photo-group {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+}
+
+.group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.group-header h4 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.group-photos {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: var(--space-sm);
+}
+
+.group-photo {
+    position: relative;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.group-photo img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+}
+
+.group-photo-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: var(--space-sm);
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.group-photo:hover .group-photo-overlay {
+    opacity: 1;
+}
+
+.photo-name {
+    font-size: 11px;
+    color: var(--white);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.group-photo-actions {
+    display: flex;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
+}
+
+.btn-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--white);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.btn-icon:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Best/Not Best Photo indicators */
+.group-photo.best-photo {
+    box-shadow: 0 0 0 3px var(--success);
+}
+
+.group-photo.best-photo::after {
+    content: '✓ Best';
+    position: absolute;
+    top: var(--space-xs);
+    right: var(--space-xs);
+    background: var(--success);
+    color: var(--white);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.group-photo.not-best-photo {
+    opacity: 0.6;
+}
+
+/* Spinner for loading states */
+.spinner-small {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: var(--white);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+/* ============================================
    TOUCH DEVICES
    ============================================ */
 
@@ -1169,6 +1383,10 @@ a:hover {
 
     .btn:hover {
         transform: none;
+    }
+    
+    .group-photo-overlay {
+        opacity: 1;
     }
 }
 
