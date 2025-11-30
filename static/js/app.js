@@ -58,6 +58,7 @@ function setupTabs() {
                 organizeSection.style.display = 'none';
                 gallery.style.display = 'grid';
                 galleryHeader.style.display = 'flex';
+                // Always reload photos when switching to gallery tabs to ensure fresh data
                 loadPhotos();
             }
         });
@@ -1157,6 +1158,9 @@ async function keepSelectedArchiveRest(groupIndex) {
         // Update group in memory
         group.photos = group.photos.filter(p => selectedIds.has(p.id));
         
+        // Mark gallery as needing refresh
+        window.galleryNeedsRefresh = true;
+        
         // If only 1 or 0 photos left, remove the group
         if (group.photos.length < 2) {
             groupEl.remove();
@@ -1258,6 +1262,10 @@ async function archiveMultiplePhotos(photoIds, groupEl) {
         photoIds.forEach(id => {
             const photoEl = document.querySelector(`.group-photo[data-photo-id="${id}"]`);
             if (photoEl) photoEl.remove();
+            
+            // Also remove from gallery if visible
+            const galleryEl = document.querySelector(`.photo-card[data-id="${id}"]`);
+            if (galleryEl) galleryEl.remove();
         });
         
         // Update or remove the group
@@ -1272,6 +1280,9 @@ async function archiveMultiplePhotos(photoIds, groupEl) {
                 });
             }
         }
+        
+        // Mark gallery as needing refresh
+        window.galleryNeedsRefresh = true;
         
         alert(`Archived ${result.archived} photo${result.archived > 1 ? 's' : ''}`);
         

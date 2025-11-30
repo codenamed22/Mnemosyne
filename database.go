@@ -287,7 +287,7 @@ func (d *Database) CreatePhoto(filename string, userID int64, size int64) (*Phot
 // GetPhotosByUser retrieves all photos for a user
 func (d *Database) GetPhotosByUser(userID int64) ([]*Photo, error) {
 	rows, err := d.db.Query(
-		"SELECT id, filename, user_id, is_shared, size, uploaded_at FROM photos WHERE user_id = ? ORDER BY uploaded_at DESC",
+		"SELECT id, filename, user_id, is_shared, size, uploaded_at FROM photos WHERE user_id = ? AND (is_archived = FALSE OR is_archived IS NULL) ORDER BY uploaded_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -304,7 +304,7 @@ func (d *Database) GetSharedPhotos() ([]*Photo, error) {
 		SELECT p.id, p.filename, p.user_id, p.is_shared, p.size, p.uploaded_at, u.username
 		FROM photos p
 		JOIN users u ON p.user_id = u.id
-		WHERE p.is_shared = TRUE
+		WHERE p.is_shared = TRUE AND (p.is_archived = FALSE OR p.is_archived IS NULL)
 		ORDER BY p.uploaded_at DESC
 	`)
 	if err != nil {
@@ -330,6 +330,7 @@ func (d *Database) GetAllPhotos() ([]*Photo, error) {
 		SELECT p.id, p.filename, p.user_id, p.is_shared, p.size, p.uploaded_at, u.username
 		FROM photos p
 		JOIN users u ON p.user_id = u.id
+		WHERE (p.is_archived = FALSE OR p.is_archived IS NULL)
 		ORDER BY p.uploaded_at DESC
 	`)
 	if err != nil {
