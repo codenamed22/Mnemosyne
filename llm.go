@@ -275,9 +275,9 @@ func (c *LLMClient) selectBestPhotoGemini(photoPaths []string, photoIDs []int64)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build URL
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s",
-		c.config.BaseURL, c.config.Model, c.config.APIKey)
+	// Build URL - SECURITY: Don't put API key in URL (gets logged, cached, etc.)
+	url := fmt.Sprintf("%s/models/%s:generateContent",
+		c.config.BaseURL, c.config.Model)
 
 	// Create and send request
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
@@ -286,6 +286,8 @@ func (c *LLMClient) selectBestPhotoGemini(photoPaths []string, photoIDs []int64)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	// Use header-based authentication instead of URL query parameter
+	req.Header.Set("x-goog-api-key", c.config.APIKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -297,19 +298,26 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 }
 
 // getClientIP extracts the client IP from the request
+// SECURITY: Only use RemoteAddr to prevent IP spoofing attacks on brute force protection.
+// X-Forwarded-For and X-Real-IP headers are easily spoofable and should not be trusted
+// for security-critical decisions like rate limiting.
+// If behind a reverse proxy, configure the proxy to set RemoteAddr correctly.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header
-	ip := r.Header.Get("X-Forwarded-For")
-	if ip != "" {
-		return ip
+	// Extract IP from RemoteAddr (format: "IP:port" or just "IP")
+	ip := r.RemoteAddr
+	
+	// Handle IPv6 addresses in brackets [::1]:port
+	if len(ip) > 0 && ip[0] == '[' {
+		if idx := strings.Index(ip, "]:"); idx != -1 {
+			return ip[1:idx]
+		}
+		return strings.Trim(ip, "[]")
 	}
-
-	// Check X-Real-IP header
-	ip = r.Header.Get("X-Real-IP")
-	if ip != "" {
-		return ip
+	
+	// Handle IPv4 addresses ip:port
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		return ip[:idx]
 	}
-
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	
+	return ip
 }
