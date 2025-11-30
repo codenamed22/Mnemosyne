@@ -28,7 +28,10 @@ func (app *App) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		app.templates.ExecuteTemplate(w, "login.html", nil)
+		if err := app.templates.ExecuteTemplate(w, "login.html", nil); err != nil {
+			log.Printf("Template error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -42,9 +45,12 @@ func (app *App) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		password := r.FormValue("password")
 
 		if err := app.sessionMgr.Login(w, r, username, password); err != nil {
-			app.templates.ExecuteTemplate(w, "login.html", map[string]string{
+			if tmplErr := app.templates.ExecuteTemplate(w, "login.html", map[string]string{
 				"Error": err.Error(),
-			})
+			}); tmplErr != nil {
+				log.Printf("Template error: %v", tmplErr)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -64,7 +70,10 @@ func (app *App) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		app.templates.ExecuteTemplate(w, "register.html", nil)
+		if err := app.templates.ExecuteTemplate(w, "register.html", nil); err != nil {
+			log.Printf("Template error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -79,17 +88,23 @@ func (app *App) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		confirmPassword := r.FormValue("confirm_password")
 
 		if password != confirmPassword {
-			app.templates.ExecuteTemplate(w, "register.html", map[string]string{
+			if tmplErr := app.templates.ExecuteTemplate(w, "register.html", map[string]string{
 				"Error": "Passwords do not match",
-			})
+			}); tmplErr != nil {
+				log.Printf("Template error: %v", tmplErr)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
 		user, err := app.sessionMgr.Register(username, password)
 		if err != nil {
-			app.templates.ExecuteTemplate(w, "register.html", map[string]string{
+			if tmplErr := app.templates.ExecuteTemplate(w, "register.html", map[string]string{
 				"Error": err.Error(),
-			})
+			}); tmplErr != nil {
+				log.Printf("Template error: %v", tmplErr)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -122,12 +137,15 @@ func (app *App) HandleGallery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.templates.ExecuteTemplate(w, "gallery.html", map[string]interface{}{
+	if err := app.templates.ExecuteTemplate(w, "gallery.html", map[string]interface{}{
 		"CSRFToken": session.CSRFToken,
 		"Username":  session.Username,
 		"IsAdmin":   session.IsAdmin(),
 		"UserID":    session.UserID,
-	})
+	}); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // HandleAdmin shows the admin panel
@@ -143,10 +161,13 @@ func (app *App) HandleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.templates.ExecuteTemplate(w, "admin.html", map[string]interface{}{
+	if err := app.templates.ExecuteTemplate(w, "admin.html", map[string]interface{}{
 		"CSRFToken": session.CSRFToken,
 		"Username":  session.Username,
-	})
+	}); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // HandleAPIGetUsers returns all users (admin only)
