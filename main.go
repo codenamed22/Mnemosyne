@@ -77,8 +77,15 @@ func main() {
 		for _, ip := range ips {
 			fmt.Printf("  https://%s:%d\n", ip, config.Port)
 		}
-		fmt.Println("\n⚠  Note: You'll see a security warning for the self-signed certificate.")
-		fmt.Println("   This is normal - accept it to continue.")
+		if config.UseMkcert {
+			fmt.Println("\n✓ Using mkcert certificates - no browser warnings!")
+			fmt.Println("  (Make sure you've installed the CA on your devices)")
+		} else {
+			fmt.Println("\n⚠  Certificate Warning: Self-signed certificate in use.")
+			fmt.Println("   To remove browser warnings, use mkcert:")
+			fmt.Println("   → See docs/TRUSTED_CERTIFICATES.md for setup instructions")
+			fmt.Println("   → Or just accept the warning once per device")
+		}
 	} else {
 		fmt.Println("  Protocol: HTTP (not encrypted)")
 		fmt.Println("\n📱 Access from your devices at:")
