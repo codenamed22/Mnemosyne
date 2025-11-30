@@ -1,16 +1,17 @@
 # Mkcert setup helper for Mnemosyne (Windows)
 # Run this in PowerShell as Administrator
 
-Write-Host "🔐 Mnemosyne Certificate Setup" -ForegroundColor Cyan
-Write-Host "==============================" -ForegroundColor Cyan
+Write-Host "[SETUP] Mnemosyne Certificate Setup" -ForegroundColor Cyan
+Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if mkcert is installed
 try {
     $null = Get-Command mkcert -ErrorAction Stop
-    Write-Host "✓ mkcert is installed" -ForegroundColor Green
-} catch {
-    Write-Host "❌ mkcert is not installed." -ForegroundColor Red
+    Write-Host "[OK] mkcert is installed" -ForegroundColor Green
+}
+catch {
+    Write-Host "[ERROR] mkcert is not installed." -ForegroundColor Red
     Write-Host ""
     Write-Host "Install it first (run as Administrator):"
     Write-Host "  choco install mkcert"
@@ -23,12 +24,12 @@ try {
 Write-Host ""
 
 # Install the local CA
-Write-Host "📜 Installing local CA (may require admin)..." -ForegroundColor Yellow
+Write-Host "[*] Installing local CA (may require admin)..." -ForegroundColor Yellow
 mkcert -install
 Write-Host ""
 
 # Get local IPs
-Write-Host "🌐 Detecting local IP addresses..." -ForegroundColor Yellow
+Write-Host "[*] Detecting local IP addresses..." -ForegroundColor Yellow
 $localIPs = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
     $_.IPAddress -notlike "127.*" -and 
     $_.IPAddress -notlike "169.254.*" -and
@@ -47,7 +48,7 @@ if (-not (Test-Path $certDir)) {
 }
 
 # Generate certificate
-Write-Host "🔑 Generating certificates..." -ForegroundColor Yellow
+Write-Host "[*] Generating certificates..." -ForegroundColor Yellow
 Set-Location $certDir
 
 $domains = @("localhost", "127.0.0.1") + $localIPs
@@ -59,19 +60,19 @@ $mkcertArgs = @("-cert-file", "server.crt", "-key-file", "server.key") + $domain
 & mkcert @mkcertArgs
 
 Write-Host ""
-Write-Host "✅ Certificates generated successfully!" -ForegroundColor Green
+Write-Host "[SUCCESS] Certificates generated successfully!" -ForegroundColor Green
 Write-Host ""
-Write-Host "📁 Certificate location:" -ForegroundColor Cyan
+Write-Host "Certificate location:" -ForegroundColor Cyan
 Write-Host "   $certDir\server.crt"
 Write-Host "   $certDir\server.key"
 Write-Host ""
-Write-Host "📱 To access from phones/tablets without warnings:" -ForegroundColor Cyan
+Write-Host "To access from phones/tablets without warnings:" -ForegroundColor Cyan
 Write-Host "   1. Find the CA file: mkcert -CAROOT"
 Write-Host "   2. Copy rootCA.pem to your device"
 Write-Host "   3. Install it as a trusted certificate"
-Write-Host "   → See docs/TRUSTED_CERTIFICATES.md for detailed instructions"
+Write-Host "   -> See docs/TRUSTED_CERTIFICATES.md for detailed instructions"
 Write-Host ""
-Write-Host "⚙️  Update your config.json:" -ForegroundColor Yellow
+Write-Host "Update your config.json:" -ForegroundColor Yellow
 Write-Host '   "use_mkcert": true'
 Write-Host ""
 
