@@ -17,6 +17,18 @@ type Config struct {
 	EnableHTTPS   bool   `json:"enable_https"`
 	CertPath      string `json:"cert_path"`
 	KeyPath       string `json:"key_path"`
+
+	// Photo Selector / AI Features
+	EmbeddingServiceURL string `json:"embedding_service_url"` // CLIP embedding service URL
+	SimilarityThreshold float64 `json:"similarity_threshold"` // Threshold for grouping similar photos (0-1)
+
+	// LLM Configuration
+	LLMProvider        string `json:"llm_provider"`         // openai, azure, gemini, custom
+	LLMAPIKey          string `json:"llm_api_key"`          // API key for the LLM provider
+	LLMBaseURL         string `json:"llm_base_url"`         // Base URL (for Azure/custom providers)
+	LLMModel           string `json:"llm_model"`            // Model name (e.g., gpt-4o, gemini-1.5-pro)
+	LLMAzureDeployment string `json:"llm_azure_deployment"` // Azure deployment name
+	LLMAzureAPIVersion string `json:"llm_azure_api_version"` // Azure API version
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -30,7 +42,36 @@ func DefaultConfig() *Config {
 		EnableHTTPS:   true,
 		CertPath:      "./certs/server.crt",
 		KeyPath:       "./certs/server.key",
+
+		// Photo Selector defaults
+		EmbeddingServiceURL: "http://127.0.0.1:8081",
+		SimilarityThreshold: 0.75, // 75% similarity
+
+		// LLM defaults (unconfigured)
+		LLMProvider:        "",
+		LLMAPIKey:          "",
+		LLMBaseURL:         "",
+		LLMModel:           "",
+		LLMAzureDeployment: "",
+		LLMAzureAPIVersion: "2024-02-15-preview",
 	}
+}
+
+// GetLLMConfig returns the LLM configuration
+func (c *Config) GetLLMConfig() LLMConfig {
+	return LLMConfig{
+		Provider:        LLMProvider(c.LLMProvider),
+		APIKey:          c.LLMAPIKey,
+		BaseURL:         c.LLMBaseURL,
+		Model:           c.LLMModel,
+		AzureDeployment: c.LLMAzureDeployment,
+		AzureAPIVersion: c.LLMAzureAPIVersion,
+	}
+}
+
+// IsLLMConfigured checks if LLM is configured
+func (c *Config) IsLLMConfigured() bool {
+	return c.LLMProvider != "" && c.LLMAPIKey != ""
 }
 
 // LoadConfig loads configuration from file or creates default

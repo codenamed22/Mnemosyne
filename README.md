@@ -11,6 +11,8 @@ A secure, self-hosted photo storage solution for your home network. Multiple fam
 - **📱 Mobile-Friendly**: Works great on phones, tablets, and computers
 - **🚀 Fast**: Automatic thumbnail generation for quick browsing
 - **💾 Simple**: Single executable, zero dependencies after building
+- **🤖 AI Photo Organizer**: Find similar photos and let AI pick the best one
+- **📦 Archive**: Move unwanted photos to archive without deleting
 
 ## Security Features
 
@@ -99,6 +101,56 @@ Press Ctrl+C to stop the server.
 | **Family Area** | All logged-in users |
 | **All Photos** (Admin) | Admin only |
 
+## Photo Organizer (AI Features)
+
+The Photo Organizer helps you find and clean up similar photos using AI.
+
+### How It Works
+
+1. **CLIP Embeddings**: Photos are analyzed using CLIP (Contrastive Language-Image Pre-Training) to generate semantic embeddings
+2. **DBSCAN Clustering**: Similar photos are automatically grouped together
+3. **LLM Analysis**: An AI model analyzes each group and recommends the best photo based on sharpness, exposure, composition, and face quality
+
+### Setup
+
+#### 1. Start the Embedding Service
+
+```bash
+cd embeddings
+./start.sh  # or: python main.py
+```
+
+The CLIP service runs on `http://127.0.0.1:8081`
+
+#### 2. Configure LLM (Optional)
+
+Add to `config.json`:
+
+```json
+{
+  "llm_provider": "openai",
+  "llm_api_key": "your-api-key",
+  "llm_model": "gpt-4o"
+}
+```
+
+**Supported LLM Providers:**
+
+| Provider | Config | Notes |
+|----------|--------|-------|
+| OpenAI | `"llm_provider": "openai"` | GPT-4o, GPT-4V |
+| Azure OpenAI | `"llm_provider": "azure"` | + `llm_base_url`, `llm_azure_deployment` |
+| Google Gemini | `"llm_provider": "gemini"` | gemini-1.5-pro |
+| Custom | `"llm_provider": "custom"` | Any OpenAI-compatible API |
+
+### Using the Organizer
+
+1. Go to the **Organize** tab
+2. Click **Generate Embeddings** to analyze your photos
+3. Click **Find Similar Photos** to discover groups
+4. Click **AI Select Best** on any group for AI recommendations
+5. Archive photos you don't want to keep
+
 ## Configuration
 
 The `config.json` file is created automatically:
@@ -112,7 +164,12 @@ The `config.json` file is created automatically:
   "session_expiry_hours": 24,
   "enable_https": true,
   "cert_path": "./certs/server.crt",
-  "key_path": "./certs/server.key"
+  "key_path": "./certs/server.key",
+  "embedding_service_url": "http://127.0.0.1:8081",
+  "similarity_threshold": 0.75,
+  "llm_provider": "",
+  "llm_api_key": "",
+  "llm_model": ""
 }
 ```
 
@@ -126,16 +183,24 @@ The `config.json` file is created automatically:
 | `max_upload_mb` | 50 | Maximum file size per upload |
 | `session_expiry_hours` | 24 | How long sessions last |
 | `enable_https` | true | Use HTTPS (recommended) |
+| `embedding_service_url` | http://127.0.0.1:8081 | URL of CLIP embedding service |
+| `similarity_threshold` | 0.75 | Threshold for grouping similar photos (0-1) |
+| `llm_provider` | | LLM provider (openai, azure, gemini, custom) |
+| `llm_api_key` | | API key for LLM provider |
+| `llm_model` | | Model name (e.g., gpt-4o, gemini-1.5-pro) |
 
 ## Storage Structure
 
 ```
 data/
-├── mnemosyne.db          # SQLite database (users, photos metadata)
+├── mnemosyne.db          # SQLite database (users, photos, embeddings)
 └── users/
     ├── 1/                # User ID folders
     │   ├── originals/    # Full-size photos
-    │   └── thumbnails/   # 300px thumbnails
+    │   ├── thumbnails/   # 300px thumbnails
+    │   └── archived/     # Archived photos
+    │       ├── originals/
+    │       └── thumbnails/
     ├── 2/
     └── ...
 ```
@@ -152,10 +217,20 @@ data/
 - `POST /api/photos/upload` - Upload photo
 - `GET /api/photos/my` - List own photos
 - `GET /api/photos/shared` - List family area photos
+- `GET /api/photos/archived` - List archived photos
 - `GET /api/photos/original/{userID}/{filename}` - Get original
 - `GET /api/photos/thumbnail/{userID}/{filename}` - Get thumbnail
 - `DELETE /api/photos/{photoID}` - Delete photo
 - `POST /api/photos/{photoID}/share` - Toggle family sharing
+- `POST /api/photos/{photoID}/archive` - Archive photo
+- `POST /api/photos/{photoID}/unarchive` - Restore from archive
+- `POST /api/photos/bulk/archive` - Archive multiple photos
+
+### Photo Organizer API
+- `GET /api/organize/status` - Get organizer status
+- `POST /api/organize/generate-embeddings` - Generate CLIP embeddings
+- `POST /api/organize/find-groups` - Find similar photo groups
+- `POST /api/organize/analyze-group` - AI analysis for best photo
 
 ### Admin Only
 - `GET /admin` - Admin panel
@@ -245,6 +320,13 @@ Mnemosyne/
 ├── handlers.go          # HTTP handlers
 ├── cert.go              # TLS certificates
 ├── utils.go             # Utilities
+├── similarity.go        # CLIP embedding client
+├── clustering.go        # DBSCAN clustering
+├── llm.go               # LLM provider integration
+├── embeddings/          # Python CLIP service
+│   ├── main.py
+│   ├── requirements.txt
+│   └── start.sh
 ├── templates/
 │   ├── login.html
 │   ├── register.html

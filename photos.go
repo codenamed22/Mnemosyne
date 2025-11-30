@@ -188,6 +188,9 @@ func (pm *PhotoManager) DeletePhoto(photo *Photo) error {
 	originalPath := filepath.Join(pm.getOriginalsPath(photo.UserID), photo.Filename)
 	thumbnailPath := filepath.Join(pm.getThumbnailsPath(photo.UserID), photo.Filename)
 
+	// Delete embedding if exists
+	pm.db.DeleteEmbedding(photo.ID)
+
 	// Delete from database first
 	if err := pm.db.DeletePhoto(photo.ID); err != nil {
 		return fmt.Errorf("failed to delete photo record: %v", err)
@@ -198,6 +201,134 @@ func (pm *PhotoManager) DeletePhoto(photo *Photo) error {
 	os.Remove(thumbnailPath)
 
 	return nil
+}
+
+// getArchivePath returns the archive storage path for a user
+func (pm *PhotoManager) getArchivePath(userID int64) string {
+	return filepath.Join(pm.getUserPath(userID), "archived")
+}
+
+// getArchivedOriginalsPath returns the path to archived originals for a user
+func (pm *PhotoManager) getArchivedOriginalsPath(userID int64) string {
+	return filepath.Join(pm.getArchivePath(userID), "originals")
+}
+
+// getArchivedThumbnailsPath returns the path to archived thumbnails for a user
+func (pm *PhotoManager) getArchivedThumbnailsPath(userID int64) string {
+	return filepath.Join(pm.getArchivePath(userID), "thumbnails")
+}
+
+// EnsureArchiveDirectories creates archive storage directories for a user
+func (pm *PhotoManager) EnsureArchiveDirectories(userID int64) error {
+	dirs := []string{
+		pm.getArchivedOriginalsPath(userID),
+		pm.getArchivedThumbnailsPath(userID),
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create archive directory %s: %v", dir, err)
+		}
+	}
+
+	return nil
+}
+
+// ArchivePhoto moves a photo to the archive folder
+func (pm *PhotoManager) ArchivePhoto(photo *Photo) error {
+	// Ensure archive directories exist
+	if err := pm.EnsureArchiveDirectories(photo.UserID); err != nil {
+		return err
+	}
+
+	// Current paths
+	originalPath := filepath.Join(pm.getOriginalsPath(photo.UserID), photo.Filename)
+	thumbnailPath := filepath.Join(pm.getThumbnailsPath(photo.UserID), photo.Filename)
+
+	// Archive paths
+	archivedOriginalPath := filepath.Join(pm.getArchivedOriginalsPath(photo.UserID), photo.Filename)
+	archivedThumbnailPath := filepath.Join(pm.getArchivedThumbnailsPath(photo.UserID), photo.Filename)
+
+	// Move original file
+	if err := os.Rename(originalPath, archivedOriginalPath); err != nil {
+		return fmt.Errorf("failed to archive original: %v", err)
+	}
+
+	// Move thumbnail (if exists)
+	if _, err := os.Stat(thumbnailPath); err == nil {
+		if err := os.Rename(thumbnailPath, archivedThumbnailPath); err != nil {
+			// Try to restore original if thumbnail move fails
+			os.Rename(archivedOriginalPath, originalPath)
+			return fmt.Errorf("failed to archive thumbnail: %v", err)
+		}
+	}
+
+	// Update database
+	if err := pm.db.ArchivePhoto(photo.ID); err != nil {
+		// Try to restore files if database update fails
+		os.Rename(archivedOriginalPath, originalPath)
+		os.Rename(archivedThumbnailPath, thumbnailPath)
+		return fmt.Errorf("failed to update database: %v", err)
+	}
+
+	return nil
+}
+
+// UnarchivePhoto restores a photo from the archive
+func (pm *PhotoManager) UnarchivePhoto(photo *Photo) error {
+	// Archived paths
+	archivedOriginalPath := filepath.Join(pm.getArchivedOriginalsPath(photo.UserID), photo.Filename)
+	archivedThumbnailPath := filepath.Join(pm.getArchivedThumbnailsPath(photo.UserID), photo.Filename)
+
+	// Destination paths
+	originalPath := filepath.Join(pm.getOriginalsPath(photo.UserID), photo.Filename)
+	thumbnailPath := filepath.Join(pm.getThumbnailsPath(photo.UserID), photo.Filename)
+
+	// Move original file
+	if err := os.Rename(archivedOriginalPath, originalPath); err != nil {
+		return fmt.Errorf("failed to restore original: %v", err)
+	}
+
+	// Move thumbnail (if exists)
+	if _, err := os.Stat(archivedThumbnailPath); err == nil {
+		if err := os.Rename(archivedThumbnailPath, thumbnailPath); err != nil {
+			// Try to restore to archive if move fails
+			os.Rename(originalPath, archivedOriginalPath)
+			return fmt.Errorf("failed to restore thumbnail: %v", err)
+		}
+	}
+
+	// Update database
+	if err := pm.db.UnarchivePhoto(photo.ID); err != nil {
+		// Try to restore to archive if database update fails
+		os.Rename(originalPath, archivedOriginalPath)
+		os.Rename(thumbnailPath, archivedThumbnailPath)
+		return fmt.Errorf("failed to update database: %v", err)
+	}
+
+	return nil
+}
+
+// GetArchivedOriginalPath returns the path to an archived original photo
+func (pm *PhotoManager) GetArchivedOriginalPath(photo *Photo) (string, error) {
+	path := filepath.Join(pm.getArchivedOriginalsPath(photo.UserID), photo.Filename)
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", fmt.Errorf("archived file not found")
+	}
+
+	return path, nil
+}
+
+// GetArchivedThumbnailPath returns the path to an archived thumbnail
+func (pm *PhotoManager) GetArchivedThumbnailPath(photo *Photo) (string, error) {
+	path := filepath.Join(pm.getArchivedThumbnailsPath(photo.UserID), photo.Filename)
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", fmt.Errorf("archived thumbnail not found")
+	}
+
+	return path, nil
 }
 
 // BuildPhotoURLs adds URL fields to a photo
@@ -702,4 +833,451 @@ func (app *App) HandleBulkDelete(w http.ResponseWriter, r *http.Request) {
 		"message": fmt.Sprintf("%d photo(s) deleted", deleted),
 		"deleted": deleted,
 	})
+}
+
+// ==================== ARCHIVE HANDLERS ====================
+
+// HandleArchivePhoto archives a single photo
+func (app *App) HandleArchivePhoto(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	photoIDStr := r.PathValue("photoID")
+	photoID, err := strconv.ParseInt(photoIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid photo ID", http.StatusBadRequest)
+		return
+	}
+
+	photo, err := app.db.GetPhotoByID(photoID)
+	if err != nil || photo == nil {
+		http.Error(w, "Photo not found", http.StatusNotFound)
+		return
+	}
+
+	// Check access: owner or admin
+	if photo.UserID != session.UserID && !session.IsAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	if err := app.photoMgr.ArchivePhoto(photo); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to archive: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Photo archived",
+	})
+}
+
+// HandleUnarchivePhoto restores a photo from archive
+func (app *App) HandleUnarchivePhoto(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	photoIDStr := r.PathValue("photoID")
+	photoID, err := strconv.ParseInt(photoIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid photo ID", http.StatusBadRequest)
+		return
+	}
+
+	photo, err := app.db.GetPhotoByID(photoID)
+	if err != nil || photo == nil {
+		http.Error(w, "Photo not found", http.StatusNotFound)
+		return
+	}
+
+	// Check access: owner or admin
+	if photo.UserID != session.UserID && !session.IsAdmin() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	if err := app.photoMgr.UnarchivePhoto(photo); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unarchive: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Photo restored",
+	})
+}
+
+// HandleListArchivedPhotos returns the user's archived photos
+func (app *App) HandleListArchivedPhotos(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	photos, err := app.db.GetArchivedPhotos(session.UserID)
+	if err != nil {
+		http.Error(w, "Failed to load archived photos", http.StatusInternalServerError)
+		return
+	}
+
+	// Add URLs to photos
+	for _, p := range photos {
+		p.ThumbnailURL = fmt.Sprintf("/api/photos/thumbnail/%d/%s", p.UserID, url.PathEscape(p.Filename))
+		p.OriginalURL = fmt.Sprintf("/api/photos/original/%d/%s", p.UserID, url.PathEscape(p.Filename))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(photos)
+}
+
+// HandleBulkArchive archives multiple photos at once
+func (app *App) HandleBulkArchive(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	var req BulkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.PhotoIDs) == 0 {
+		http.Error(w, "No photos selected", http.StatusBadRequest)
+		return
+	}
+
+	archived := 0
+	for _, photoID := range req.PhotoIDs {
+		photo, err := app.db.GetPhotoByID(photoID)
+		if err != nil || photo == nil {
+			continue
+		}
+
+		// Check access: owner or admin
+		if photo.UserID != session.UserID && !session.IsAdmin() {
+			continue
+		}
+
+		if err := app.photoMgr.ArchivePhoto(photo); err != nil {
+			continue
+		}
+		archived++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "success",
+		"message":  fmt.Sprintf("%d photo(s) archived", archived),
+		"archived": archived,
+	})
+}
+
+// ==================== PHOTO SELECTOR / ORGANIZE HANDLERS ====================
+
+// HandleOrganizeStatus returns the status of the organize features
+func (app *App) HandleOrganizeStatus(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check embedding service health
+	embeddingService := NewEmbeddingService(app.config.EmbeddingServiceURL)
+	embeddingHealthy, _ := embeddingService.IsHealthy()
+
+	// Get embedding count
+	embeddingCount, _ := app.db.GetEmbeddingCount(session.UserID)
+
+	// Get photo count
+	photoCount, _ := app.db.GetUserPhotoCount(session.UserID)
+
+	// Check if LLM is configured
+	llmConfigured := app.config.IsLLMConfigured()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"embedding_service_healthy": embeddingHealthy,
+		"embedding_service_url":     app.config.EmbeddingServiceURL,
+		"embeddings_generated":      embeddingCount,
+		"total_photos":              photoCount,
+		"llm_configured":            llmConfigured,
+		"llm_provider":              app.config.LLMProvider,
+		"similarity_threshold":      app.config.SimilarityThreshold,
+	})
+}
+
+// HandleGenerateEmbeddings generates CLIP embeddings for all user's photos
+// Always clears existing embeddings and regenerates for all photos
+func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Delete all existing embeddings for this user (start fresh)
+	app.db.DeleteAllEmbeddings(session.UserID)
+
+	// Get all non-archived photos
+	photos, err := app.db.GetNonArchivedPhotos(session.UserID)
+	if err != nil {
+		http.Error(w, "Failed to get photos", http.StatusInternalServerError)
+		return
+	}
+
+	if len(photos) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "success",
+			"message":   "No photos to analyze",
+			"generated": 0,
+		})
+		return
+	}
+
+	// Initialize embedding service
+	embeddingService := NewEmbeddingService(app.config.EmbeddingServiceURL)
+
+	// Check if service is healthy
+	healthy, _ := embeddingService.IsHealthy()
+	if !healthy {
+		http.Error(w, "Embedding service not available. Please start the CLIP service.", http.StatusServiceUnavailable)
+		return
+	}
+
+	generated := 0
+	errors := 0
+
+	for _, photo := range photos {
+		// Get photo path
+		path, err := app.photoMgr.GetOriginalPath(photo)
+		if err != nil {
+			errors++
+			continue
+		}
+
+		// Generate embedding
+		embedding, err := embeddingService.GenerateEmbedding(path, fmt.Sprintf("%d", photo.ID))
+		if err != nil {
+			errors++
+			continue
+		}
+
+		// Save embedding to database
+		embeddingBytes := EmbeddingToBytes(embedding)
+		if err := app.db.SaveEmbedding(photo.ID, embeddingBytes); err != nil {
+			errors++
+			continue
+		}
+
+		generated++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "success",
+		"message":   fmt.Sprintf("Generated embeddings for %d photos (%d errors)", generated, errors),
+		"generated": generated,
+		"errors":    errors,
+		"total":     len(photos),
+	})
+}
+
+// FindGroupsRequest is the request body for finding photo groups
+type FindGroupsRequest struct {
+	SimilarityThreshold float64 `json:"similarity_threshold"`
+}
+
+// HandleFindGroups finds groups of similar photos
+func (app *App) HandleFindGroups(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse request body for threshold
+	var req FindGroupsRequest
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	// Get all embeddings for user
+	embeddingsRaw, err := app.db.GetAllEmbeddings(session.UserID)
+	if err != nil {
+		http.Error(w, "Failed to get embeddings", http.StatusInternalServerError)
+		return
+	}
+
+	if len(embeddingsRaw) < 2 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "success",
+			"message": "Not enough photos with embeddings to find groups",
+			"groups":  []PhotoGroup{},
+		})
+		return
+	}
+
+	// Convert to float64 embeddings
+	embeddings := make(map[int64][]float64)
+	for photoID, data := range embeddingsRaw {
+		emb, err := EmbeddingFromBytes(data)
+		if err != nil {
+			continue
+		}
+		embeddings[photoID] = emb
+	}
+
+	// Use threshold from request, fallback to config, fallback to default
+	threshold := req.SimilarityThreshold
+	if threshold <= 0 || threshold > 1 {
+		threshold = app.config.SimilarityThreshold
+	}
+	if threshold <= 0 || threshold > 1 {
+		threshold = 0.75
+	}
+
+	result := ClusterPhotos(embeddings, threshold)
+
+	// Get photo details for each group
+	type PhotoGroupWithDetails struct {
+		GroupID       int      `json:"group_id"`
+		Photos        []*Photo `json:"photos"`
+		AvgSimilarity float64  `json:"avg_similarity"`
+	}
+
+	groupsWithDetails := make([]PhotoGroupWithDetails, 0)
+
+	for _, group := range result.Groups {
+		photos := make([]*Photo, 0)
+		for _, photoID := range group.PhotoIDs {
+			photo, err := app.db.GetPhotoByID(photoID)
+			if err != nil || photo == nil {
+				continue
+			}
+			// Add URLs
+			photo.ThumbnailURL = fmt.Sprintf("/api/photos/thumbnail/%d/%s", photo.UserID, url.PathEscape(photo.Filename))
+			photo.OriginalURL = fmt.Sprintf("/api/photos/original/%d/%s", photo.UserID, url.PathEscape(photo.Filename))
+			photos = append(photos, photo)
+		}
+
+		if len(photos) >= 2 {
+			groupsWithDetails = append(groupsWithDetails, PhotoGroupWithDetails{
+				GroupID:       group.GroupID,
+				Photos:        photos,
+				AvgSimilarity: group.AvgSimilarity,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "success",
+		"groups":         groupsWithDetails,
+		"total_groups":   len(groupsWithDetails),
+		"ungrouped":      len(result.Ungrouped),
+		"total_analyzed": len(embeddings),
+	})
+}
+
+// AnalyzeGroupRequest is the request body for analyzing a photo group
+type AnalyzeGroupRequest struct {
+	PhotoIDs []int64 `json:"photo_ids"`
+}
+
+// HandleAnalyzeGroup uses LLM to select the best photo from a group
+func (app *App) HandleAnalyzeGroup(w http.ResponseWriter, r *http.Request) {
+	session, err := app.sessionMgr.ValidateSession(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if LLM is configured
+	if !app.config.IsLLMConfigured() {
+		http.Error(w, "LLM not configured. Please add LLM settings to config.json", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req AnalyzeGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.PhotoIDs) < 2 {
+		http.Error(w, "Need at least 2 photos to analyze", http.StatusBadRequest)
+		return
+	}
+
+	// Get photo paths
+	photoPaths := make([]string, 0)
+	photoIDs := make([]int64, 0)
+
+	for _, photoID := range req.PhotoIDs {
+		photo, err := app.db.GetPhotoByID(photoID)
+		if err != nil || photo == nil {
+			continue
+		}
+
+		// Check access
+		if photo.UserID != session.UserID && !session.IsAdmin() {
+			continue
+		}
+
+		path, err := app.photoMgr.GetOriginalPath(photo)
+		if err != nil {
+			continue
+		}
+
+		photoPaths = append(photoPaths, path)
+		photoIDs = append(photoIDs, photoID)
+	}
+
+	if len(photoPaths) < 2 {
+		http.Error(w, "Not enough accessible photos", http.StatusBadRequest)
+		return
+	}
+
+	// Create LLM client
+	llmClient := NewLLMClient(app.config.GetLLMConfig())
+
+	// Analyze photos
+	result, err := llmClient.SelectBestPhoto(photoPaths, photoIDs)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("LLM analysis failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

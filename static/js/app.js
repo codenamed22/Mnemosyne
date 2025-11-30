@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupUpload();
     setupViewer();
     setupSelection();
+    setupOrganize();
     loadPhotos();
 });
 
@@ -39,7 +40,27 @@ function setupTabs() {
             tab.classList.add('active');
             currentTab = tab.dataset.tab;
             exitSelectMode();
-            loadPhotos();
+            
+            // Show/hide sections based on tab
+            const gallery = document.getElementById('gallery');
+            const organizeSection = document.getElementById('organizeSection');
+            const galleryHeader = document.querySelector('.gallery-header');
+            const selectionBar = document.getElementById('selectionBar');
+            
+            if (currentTab === 'organize') {
+                gallery.style.display = 'none';
+                document.getElementById('emptyState').style.display = 'none';
+                organizeSection.style.display = 'block';
+                galleryHeader.style.display = 'none';
+                selectionBar.style.display = 'none';
+                loadOrganizeStatus();
+            } else {
+                organizeSection.style.display = 'none';
+                gallery.style.display = 'grid';
+                galleryHeader.style.display = 'flex';
+                // Always reload photos when switching to gallery tabs to ensure fresh data
+                loadPhotos();
+            }
         });
     });
 }
@@ -47,13 +68,17 @@ function setupTabs() {
 // ==================== PHOTOS ====================
 
 async function loadPhotos() {
+    // Skip loading for organize tab
+    if (currentTab === 'organize') return;
+    
     const gallery = document.getElementById('gallery');
     gallery.innerHTML = '<div class="loading">Loading photos...</div>';
 
     const endpoints = {
         'my-photos': '/api/photos/my',
         'family': '/api/photos/shared',
-        'all': '/api/photos/all'
+        'all': '/api/photos/all',
+        'archived': '/api/photos/archived'
     };
 
     try {
@@ -796,5 +821,527 @@ async function bulkDelete() {
     } catch (error) {
         console.error('Bulk delete error:', error);
         alert('Failed to delete photos');
+    }
+}
+
+// ==================== ORGANIZE / PHOTO SELECTOR ====================
+
+let similarityThreshold = 75;
+
+function setupOrganize() {
+    document.getElementById('generateEmbeddingsBtn')?.addEventListener('click', generateEmbeddings);
+    document.getElementById('findGroupsBtn')?.addEventListener('click', findGroups);
+    
+    // Setup similarity slider
+    const slider = document.getElementById('similaritySlider');
+    const valueDisplay = document.getElementById('similarityValue');
+    
+    if (slider && valueDisplay) {
+        slider.addEventListener('input', (e) => {
+            similarityThreshold = parseInt(e.target.value);
+            valueDisplay.textContent = similarityThreshold + '%';
+            slider.dataset.userChanged = 'true';
+        });
+    }
+}
+
+async function loadOrganizeStatus() {
+    try {
+        const response = await fetch('/api/organize/status');
+        if (!response.ok) throw new Error('Failed to load status');
+        
+        const status = await response.json();
+        
+        // Update embedding service status
+        const embeddingStatus = document.getElementById('embeddingServiceStatus');
+        if (status.embedding_service_healthy) {
+            embeddingStatus.textContent = 'Running';
+            embeddingStatus.className = 'status-badge status-success';
+        } else {
+            embeddingStatus.textContent = 'Not Running';
+            embeddingStatus.className = 'status-badge status-error';
+        }
+        
+        // Update embedding count
+        document.getElementById('embeddingCount').textContent = 
+            `${status.embeddings_generated} / ${status.total_photos}`;
+        
+        // Update LLM status
+        const llmStatus = document.getElementById('llmStatus');
+        if (status.llm_configured) {
+            llmStatus.textContent = status.llm_provider.toUpperCase();
+            llmStatus.className = 'status-badge status-success';
+        } else {
+            llmStatus.textContent = 'Not Configured';
+            llmStatus.className = 'status-badge status-warning';
+        }
+        
+        // Set slider to server's default if this is first load
+        if (status.similarity_threshold) {
+            const serverThreshold = Math.round(status.similarity_threshold * 100);
+            const slider = document.getElementById('similaritySlider');
+            const valueDisplay = document.getElementById('similarityValue');
+            if (slider && !slider.dataset.userChanged) {
+                slider.value = serverThreshold;
+                similarityThreshold = serverThreshold;
+                if (valueDisplay) valueDisplay.textContent = serverThreshold + '%';
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error loading organize status:', error);
+    }
+}
+
+async function generateEmbeddings() {
+    const btn = document.getElementById('generateEmbeddingsBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-small"></span> Generating...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/organize/generate-embeddings', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrfToken }
+        });
+        
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error);
+        }
+        
+        const result = await response.json();
+        alert(result.message);
+        loadOrganizeStatus();
+        
+        // Clear any existing groups since embeddings changed
+        document.getElementById('photoGroups').style.display = 'none';
+        
+    } catch (error) {
+        console.error('Error generating embeddings:', error);
+        alert('Failed to generate embeddings: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function findGroups() {
+    const btn = document.getElementById('findGroupsBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-small"></span> Finding groups...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/organize/find-groups', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken 
+            },
+            body: JSON.stringify({
+                similarity_threshold: similarityThreshold / 100
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to find groups');
+        
+        const result = await response.json();
+        
+        if (result.groups.length === 0) {
+            alert(`No similar photo groups found at ${similarityThreshold}% similarity.\nTry lowering the threshold with the slider.`);
+            return;
+        }
+        
+        renderPhotoGroups(result.groups);
+        
+    } catch (error) {
+        console.error('Error finding groups:', error);
+        alert('Failed to find groups: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+// Store groups data for viewer navigation
+let photoGroups = [];
+
+function renderPhotoGroups(groups) {
+    const container = document.getElementById('photoGroups');
+    const list = document.getElementById('groupsList');
+    const title = document.getElementById('groupsTitle');
+    
+    // Store for viewer
+    photoGroups = groups;
+    
+    title.textContent = `Found ${groups.length} Similar Photo Group${groups.length > 1 ? 's' : ''}`;
+    
+    list.innerHTML = groups.map((group, i) => `
+        <div class="photo-group" data-group-id="${group.group_id}" data-group-index="${i}">
+            <div class="group-header">
+                <h4>Group ${i + 1} (${group.photos.length} photos, ${Math.round(group.avg_similarity * 100)}% similar)</h4>
+                <div class="group-actions">
+                    <button class="btn btn-ghost btn-sm" onclick="toggleGroupSelect(${i})" title="Select photos to keep">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 11 12 14 22 4"/>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                        </svg>
+                        Select to Keep
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="analyzeGroup(${JSON.stringify(group.photos.map(p => p.id))})">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                            <circle cx="12" cy="17" r="0.5"/>
+                        </svg>
+                        AI Select Best
+                    </button>
+                </div>
+            </div>
+            <div class="group-select-bar" style="display: none;">
+                <span class="select-count">0 selected to keep</span>
+                <div class="select-actions">
+                    <button class="btn btn-primary btn-sm" onclick="keepSelectedArchiveRest(${i})">
+                        Keep Selected & Archive Rest
+                    </button>
+                    <button class="btn btn-ghost btn-sm" onclick="cancelGroupSelect(${i})">Cancel</button>
+                </div>
+            </div>
+            <div class="group-photos">
+                ${group.photos.map((photo, photoIndex) => `
+                    <div class="group-photo" data-photo-id="${photo.id}" data-group-index="${i}" data-photo-index="${photoIndex}" onclick="openGroupPhoto(${i}, ${photoIndex})">
+                        <img src="${esc(photo.thumbnail_url)}" alt="${esc(photo.filename)}" loading="lazy">
+                        <div class="group-photo-checkbox" style="display: none;" onclick="event.stopPropagation(); toggleGroupPhotoSelect(this, ${photo.id}, ${i})">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="group-photo-overlay">
+                            <span class="photo-name">${esc(photo.filename)}</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+    
+    container.style.display = 'block';
+}
+
+// Open group photo in viewer
+function openGroupPhoto(groupIndex, photoIndex) {
+    const group = photoGroups[groupIndex];
+    if (!group) return;
+    
+    // Check if we're in select mode - if so, toggle selection instead
+    const groupEl = document.querySelector(`.photo-group[data-group-index="${groupIndex}"]`);
+    if (groupEl && groupEl.classList.contains('selecting')) {
+        const photoEl = groupEl.querySelector(`.group-photo[data-photo-index="${photoIndex}"]`);
+        if (photoEl) {
+            const checkbox = photoEl.querySelector('.group-photo-checkbox');
+            toggleGroupPhotoSelect(checkbox, group.photos[photoIndex].id, groupIndex);
+        }
+        return;
+    }
+    
+    // Open viewer with group photos
+    currentPhotos = group.photos;
+    openViewer(photoIndex);
+}
+
+// Toggle group selection mode
+function toggleGroupSelect(groupIndex) {
+    const groupEl = document.querySelector(`.photo-group[data-group-index="${groupIndex}"]`);
+    if (!groupEl) return;
+    
+    const isSelecting = groupEl.classList.toggle('selecting');
+    const selectBar = groupEl.querySelector('.group-select-bar');
+    const checkboxes = groupEl.querySelectorAll('.group-photo-checkbox');
+    
+    selectBar.style.display = isSelecting ? 'flex' : 'none';
+    checkboxes.forEach(cb => {
+        cb.style.display = isSelecting ? 'flex' : 'none';
+        cb.classList.remove('checked');
+    });
+    
+    // Clear selections
+    groupEl.querySelectorAll('.group-photo').forEach(p => p.classList.remove('keep-selected'));
+    updateGroupSelectCount(groupIndex);
+}
+
+// Cancel group selection
+function cancelGroupSelect(groupIndex) {
+    const groupEl = document.querySelector(`.photo-group[data-group-index="${groupIndex}"]`);
+    if (!groupEl) return;
+    
+    groupEl.classList.remove('selecting');
+    groupEl.querySelector('.group-select-bar').style.display = 'none';
+    groupEl.querySelectorAll('.group-photo-checkbox').forEach(cb => {
+        cb.style.display = 'none';
+        cb.classList.remove('checked');
+    });
+    groupEl.querySelectorAll('.group-photo').forEach(p => p.classList.remove('keep-selected'));
+}
+
+// Toggle individual photo selection in group
+function toggleGroupPhotoSelect(checkbox, photoId, groupIndex) {
+    const photoEl = checkbox.closest('.group-photo');
+    const isSelected = checkbox.classList.toggle('checked');
+    photoEl.classList.toggle('keep-selected', isSelected);
+    updateGroupSelectCount(groupIndex);
+}
+
+// Update selection count display
+function updateGroupSelectCount(groupIndex) {
+    const groupEl = document.querySelector(`.photo-group[data-group-index="${groupIndex}"]`);
+    if (!groupEl) return;
+    
+    const count = groupEl.querySelectorAll('.group-photo.keep-selected').length;
+    const countEl = groupEl.querySelector('.select-count');
+    countEl.textContent = `${count} selected to keep`;
+}
+
+// Keep selected photos and archive the rest
+async function keepSelectedArchiveRest(groupIndex) {
+    const group = photoGroups[groupIndex];
+    if (!group) return;
+    
+    const groupEl = document.querySelector(`.photo-group[data-group-index="${groupIndex}"]`);
+    const selectedIds = new Set();
+    
+    groupEl.querySelectorAll('.group-photo.keep-selected').forEach(el => {
+        selectedIds.add(parseInt(el.dataset.photoId));
+    });
+    
+    if (selectedIds.size === 0) {
+        alert('Please select at least one photo to keep');
+        return;
+    }
+    
+    // Get IDs to archive (not selected)
+    const toArchive = group.photos
+        .filter(p => !selectedIds.has(p.id))
+        .map(p => p.id);
+    
+    if (toArchive.length === 0) {
+        alert('All photos are selected. Nothing to archive.');
+        return;
+    }
+    
+    const keepCount = selectedIds.size;
+    const archiveCount = toArchive.length;
+    
+    if (!confirm(`Keep ${keepCount} photo${keepCount > 1 ? 's' : ''} and archive ${archiveCount} photo${archiveCount > 1 ? 's' : ''}?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/photos/bulk/archive', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ photo_ids: toArchive })
+        });
+        
+        if (!response.ok) throw new Error('Archive failed');
+        
+        const result = await response.json();
+        
+        // Remove archived photos from UI
+        toArchive.forEach(id => {
+            const photoEl = groupEl.querySelector(`.group-photo[data-photo-id="${id}"]`);
+            if (photoEl) photoEl.remove();
+        });
+        
+        // Update group in memory
+        group.photos = group.photos.filter(p => selectedIds.has(p.id));
+        
+        // Mark gallery as needing refresh
+        window.galleryNeedsRefresh = true;
+        
+        // If only 1 or 0 photos left, remove the group
+        if (group.photos.length < 2) {
+            groupEl.remove();
+            photoGroups.splice(groupIndex, 1);
+            
+            // Update remaining group indices
+            document.querySelectorAll('.photo-group').forEach((el, i) => {
+                el.dataset.groupIndex = i;
+            });
+        } else {
+            cancelGroupSelect(groupIndex);
+            // Update header count
+            const header = groupEl.querySelector('h4');
+            header.textContent = `Group ${groupIndex + 1} (${group.photos.length} photos, ${Math.round(group.avg_similarity * 100)}% similar)`;
+        }
+        
+        alert(`Archived ${result.archived} photo${result.archived > 1 ? 's' : ''}`);
+        
+    } catch (error) {
+        console.error('Error archiving photos:', error);
+        alert('Failed to archive photos');
+    }
+}
+
+async function analyzeGroup(photoIds) {
+    if (photoIds.length < 2) {
+        alert('Need at least 2 photos to analyze');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/organize/analyze-group', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ photo_ids: photoIds })
+        });
+        
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error);
+        }
+        
+        const result = await response.json();
+        showAnalysisResult(result, photoIds);
+        
+    } catch (error) {
+        console.error('Error analyzing group:', error);
+        alert('Failed to analyze group: ' + error.message);
+    }
+}
+
+function showAnalysisResult(result, photoIds) {
+    // Find the group element
+    const bestPhotoEl = document.querySelector(`.group-photo[data-photo-id="${result.best_photo_id}"]`);
+    const groupEl = bestPhotoEl?.closest('.photo-group');
+    
+    // Highlight the best photo
+    photoIds.forEach(id => {
+        const photoEl = document.querySelector(`.group-photo[data-photo-id="${id}"]`);
+        if (photoEl) {
+            if (id === result.best_photo_id) {
+                photoEl.classList.add('best-photo');
+            } else {
+                photoEl.classList.add('not-best-photo');
+            }
+        }
+    });
+    
+    // Ask user if they want to archive the others
+    const archiveCount = photoIds.length - 1;
+    const message = `AI Recommendation:\n\n${result.reasoning}\n\nWould you like to keep the best photo and archive the other ${archiveCount}?`;
+    
+    if (confirm(message)) {
+        // Archive all except the best
+        const toArchive = photoIds.filter(id => id !== result.best_photo_id);
+        archiveMultiplePhotos(toArchive, groupEl);
+    }
+}
+
+async function archiveMultiplePhotos(photoIds, groupEl) {
+    try {
+        const response = await fetch('/api/photos/bulk/archive', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ photo_ids: photoIds })
+        });
+        
+        if (!response.ok) throw new Error('Archive failed');
+        
+        const result = await response.json();
+        
+        // Remove archived photos from UI
+        photoIds.forEach(id => {
+            const photoEl = document.querySelector(`.group-photo[data-photo-id="${id}"]`);
+            if (photoEl) photoEl.remove();
+            
+            // Also remove from gallery if visible
+            const galleryEl = document.querySelector(`.photo-card[data-id="${id}"]`);
+            if (galleryEl) galleryEl.remove();
+        });
+        
+        // Update or remove the group
+        if (groupEl) {
+            const remainingPhotos = groupEl.querySelectorAll('.group-photo');
+            if (remainingPhotos.length < 2) {
+                groupEl.remove();
+            } else {
+                // Clear AI styling from remaining
+                remainingPhotos.forEach(p => {
+                    p.classList.remove('best-photo', 'not-best-photo');
+                });
+            }
+        }
+        
+        // Mark gallery as needing refresh
+        window.galleryNeedsRefresh = true;
+        
+        alert(`Archived ${result.archived} photo${result.archived > 1 ? 's' : ''}`);
+        
+    } catch (error) {
+        console.error('Error archiving photos:', error);
+        alert('Failed to archive photos');
+    }
+}
+
+async function archivePhoto(photoId) {
+    if (!confirm('Archive this photo? It will be moved to your archive folder.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/photos/${photoId}/archive`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrfToken }
+        });
+        
+        if (!response.ok) throw new Error('Failed to archive photo');
+        
+        // Remove from UI
+        const photoEl = document.querySelector(`.group-photo[data-photo-id="${photoId}"]`);
+        if (photoEl) {
+            const groupEl = photoEl.closest('.photo-group');
+            photoEl.remove();
+            
+            // Check if group should be removed
+            if (groupEl) {
+                const remaining = groupEl.querySelectorAll('.group-photo');
+                if (remaining.length < 2) {
+                    groupEl.remove();
+                }
+            }
+        }
+        
+        // Also remove from gallery if present
+        const galleryPhotoEl = document.querySelector(`.photo-card[data-id="${photoId}"]`);
+        if (galleryPhotoEl) {
+            galleryPhotoEl.remove();
+        }
+        
+        // Remove from current photos array
+        const index = currentPhotos.findIndex(p => p.id === photoId);
+        if (index !== -1) {
+            currentPhotos.splice(index, 1);
+        }
+        
+        // Remove from photoGroups
+        photoGroups.forEach(group => {
+            const idx = group.photos.findIndex(p => p.id === photoId);
+            if (idx !== -1) {
+                group.photos.splice(idx, 1);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error archiving photo:', error);
+        alert('Failed to archive photo');
     }
 }
