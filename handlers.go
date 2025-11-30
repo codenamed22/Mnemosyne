@@ -274,7 +274,7 @@ func (app *App) HandleAPIUpdateUserRole(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Limit request body size
-	r.Body = http.MaxBytesReader(w, r.Body, 1024) // 1KB limit for role update
+	r.Body = http.MaxBytesReader(w, r.Body, SmallJSONBodyBytes)
 
 	var body struct {
 		Role string `json:"role"`

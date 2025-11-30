@@ -146,7 +146,7 @@ func (d *Database) Close() error {
 // CreateUser creates a new user
 func (d *Database) CreateUser(username, password string) (*User, error) {
 	// Hash password
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), BcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %v", err)
 	}
