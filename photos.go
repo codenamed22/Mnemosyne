@@ -364,14 +364,23 @@ func (app *App) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	if header.Size > app.config.MaxUploadMB<<20 {
+	maxSize := app.config.MaxUploadMB << 20
+	if header.Size > maxSize {
 		http.Error(w, fmt.Sprintf("File too large (max %dMB)", app.config.MaxUploadMB), http.StatusBadRequest)
 		return
 	}
 
-	data, err := io.ReadAll(file)
+	// SECURITY: Use LimitReader to prevent memory exhaustion even if header.Size is spoofed
+	limitedReader := io.LimitReader(file, maxSize+1) // +1 to detect oversized files
+	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	// Double-check size after reading (in case header was spoofed)
+	if int64(len(data)) > maxSize {
+		http.Error(w, fmt.Sprintf("File too large (max %dMB)", app.config.MaxUploadMB), http.StatusBadRequest)
 		return
 	}
 
@@ -655,6 +664,9 @@ func (app *App) HandleBulkShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -704,6 +716,9 @@ func (app *App) HandleBulkDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -797,6 +812,9 @@ func (app *App) HandleBulkDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return
 	}
+
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
 
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -962,6 +980,9 @@ func (app *App) HandleBulkArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
+
 	var req BulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -1040,6 +1061,11 @@ func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request)
 	session, err := app.sessionMgr.ValidateSession(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return
 	}
 
@@ -1124,9 +1150,15 @@ func (app *App) HandleFindGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request body for threshold
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	// Parse request body for threshold (with size limit)
 	var req FindGroupsRequest
 	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 1024) // 1KB limit for this simple JSON
 		json.NewDecoder(r.Body).Decode(&req)
 	}
 
@@ -1222,11 +1254,19 @@ func (app *App) HandleAnalyzeGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := app.sessionMgr.ValidateCSRF(r, session); err != nil {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
 	// Check if LLM is configured
 	if !app.config.IsLLMConfigured() {
 		http.Error(w, "LLM not configured. Please add LLM settings to config.json", http.StatusServiceUnavailable)
 		return
 	}
+
+	// Limit request body size (photo IDs array shouldn't be huge)
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
 
 	var req AnalyzeGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
