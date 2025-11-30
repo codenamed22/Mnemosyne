@@ -1341,6 +1341,29 @@ a:hover {
     color: var(--text-secondary);
 }
 
+/* Group Selection Bar */
+.group-select-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-elevated);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-md);
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.select-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.select-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
 .group-photos {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -1376,6 +1399,70 @@ a:hover {
 
 .group-photo:hover .group-photo-overlay {
     opacity: 1;
+}
+
+/* Group photo checkbox for selection */
+.group-photo-checkbox {
+    position: absolute;
+    top: var(--space-xs);
+    left: var(--space-xs);
+    width: 28px;
+    height: 28px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 2px solid var(--white);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: all var(--transition);
+}
+
+.group-photo-checkbox svg {
+    opacity: 0;
+    color: var(--white);
+}
+
+.group-photo-checkbox.checked {
+    background: var(--success);
+    border-color: var(--success);
+}
+
+.group-photo-checkbox.checked svg {
+    opacity: 1;
+}
+
+.group-photo-checkbox:hover {
+    transform: scale(1.1);
+}
+
+/* Keep selected styling */
+.group-photo.keep-selected {
+    box-shadow: 0 0 0 3px var(--success);
+}
+
+.group-photo.keep-selected::after {
+    content: 'Keep';
+    position: absolute;
+    bottom: var(--space-xs);
+    right: var(--space-xs);
+    background: var(--success);
+    color: var(--white);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    z-index: 5;
+}
+
+/* Selection mode cursor */
+.photo-group.selecting .group-photo {
+    cursor: pointer;
+}
+
+.photo-group.selecting .group-photo:hover {
+    opacity: 0.9;
 }
 
 .photo-name {
