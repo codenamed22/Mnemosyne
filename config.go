@@ -17,6 +17,7 @@ type Config struct {
 	EnableHTTPS   bool   `json:"enable_https"`
 	CertPath      string `json:"cert_path"`
 	KeyPath       string `json:"key_path"`
+	UseMkcert     bool   `json:"use_mkcert"` // Set to true if using mkcert certificates (suppresses warning messages)
 
 	// Photo Selector / AI Features
 	EmbeddingServiceURL string `json:"embedding_service_url"` // CLIP embedding service URL

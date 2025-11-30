@@ -183,6 +183,7 @@ The `config.json` file is created automatically:
 | `max_upload_mb` | 50 | Maximum file size per upload |
 | `session_expiry_hours` | 24 | How long sessions last |
 | `enable_https` | true | Use HTTPS (recommended) |
+| `use_mkcert` | false | Set to true if using mkcert certificates |
 | `embedding_service_url` | http://127.0.0.1:8081 | URL of CLIP embedding service |
 | `similarity_threshold` | 0.75 | Threshold for grouping similar photos (0-1) |
 | `llm_provider` | | LLM provider (openai, azure, gemini, custom) |
@@ -296,7 +297,19 @@ go build -ldflags="-s -w" -o mnemosyne.exe .
 3. Check Windows Firewall (allow port 8080)
 
 ### Certificate warnings
-Normal for self-signed certificates. Accept to continue.
+**Option 1: Use mkcert (recommended)**
+```bash
+# Run the setup script
+./scripts/setup-mkcert.sh      # macOS/Linux
+.\scripts\setup-mkcert.ps1     # Windows PowerShell
+
+# Set in config.json
+"use_mkcert": true
+```
+Then install the CA on your devices. See `docs/TRUSTED_CERTIFICATES.md` for details.
+
+**Option 2: Accept the warning**
+Normal for self-signed certificates. Click "Advanced" → "Proceed" to continue.
 
 ### Registration not working
 - Username: 3-32 characters, letters/numbers/underscores
