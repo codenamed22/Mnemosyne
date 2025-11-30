@@ -372,9 +372,9 @@ func (d *Database) GetPhotoByID(id int64) (*Photo, error) {
 func (d *Database) GetPhotoByFilename(filename string, userID int64) (*Photo, error) {
 	photo := &Photo{}
 	err := d.db.QueryRow(
-		"SELECT id, filename, user_id, is_shared, size, uploaded_at FROM photos WHERE filename = ? AND user_id = ?",
+		"SELECT id, filename, user_id, is_shared, COALESCE(is_archived, FALSE), size, uploaded_at FROM photos WHERE filename = ? AND user_id = ?",
 		filename, userID,
-	).Scan(&photo.ID, &photo.Filename, &photo.UserID, &photo.IsShared, &photo.Size, &photo.UploadedAt)
+	).Scan(&photo.ID, &photo.Filename, &photo.UserID, &photo.IsShared, &photo.IsArchived, &photo.Size, &photo.UploadedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

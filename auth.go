@@ -4,10 +4,14 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
+
+// usernameRegex allows only alphanumeric characters and underscores
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
 const (
 	sessionCookieName = "mnemosyne_session"
@@ -176,10 +180,18 @@ func (sm *SessionManager) Login(w http.ResponseWriter, r *http.Request, username
 
 // Register creates a new user account
 func (sm *SessionManager) Register(username, password string) (*User, error) {
-	// Validate input
+	// Validate username length
 	if len(username) < 3 || len(username) > 32 {
 		return nil, fmt.Errorf("username must be between 3 and 32 characters")
 	}
+
+	// Validate username characters (alphanumeric and underscore only)
+	// SECURITY: Prevents special characters that could cause XSS, path issues, or display confusion
+	if !usernameRegex.MatchString(username) {
+		return nil, fmt.Errorf("username can only contain letters, numbers, and underscores")
+	}
+
+	// Validate password length
 	if len(password) < 6 {
 		return nil, fmt.Errorf("password must be at least 6 characters")
 	}

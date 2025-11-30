@@ -501,7 +501,19 @@ func (app *App) HandleGetOriginal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path, err := app.photoMgr.GetOriginalPath(photo)
+	// For archived photos, only owner can access (not via shared link)
+	if photo.IsArchived && photo.UserID != session.UserID && !session.IsAdmin() {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Get path based on archived status
+	var path string
+	if photo.IsArchived {
+		path, err = app.photoMgr.GetArchivedOriginalPath(photo)
+	} else {
+		path, err = app.photoMgr.GetOriginalPath(photo)
+	}
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -540,7 +552,19 @@ func (app *App) HandleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path, err := app.photoMgr.GetThumbnailPath(photo)
+	// For archived photos, only owner can access (not via shared link)
+	if photo.IsArchived && photo.UserID != session.UserID && !session.IsAdmin() {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Get path based on archived status
+	var path string
+	if photo.IsArchived {
+		path, err = app.photoMgr.GetArchivedThumbnailPath(photo)
+	} else {
+		path, err = app.photoMgr.GetThumbnailPath(photo)
+	}
 	if err != nil {
 		http.NotFound(w, r)
 		return
