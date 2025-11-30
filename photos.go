@@ -1034,7 +1034,8 @@ func (app *App) HandleOrganizeStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleGenerateEmbeddings generates CLIP embeddings for user's photos
+// HandleGenerateEmbeddings generates CLIP embeddings for all user's photos
+// Always clears existing embeddings and regenerates for all photos
 func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request) {
 	session, err := app.sessionMgr.ValidateSession(r)
 	if err != nil {
@@ -1042,8 +1043,11 @@ func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get photos without embeddings
-	photos, err := app.db.GetPhotosWithoutEmbeddings(session.UserID)
+	// Delete all existing embeddings for this user (start fresh)
+	app.db.DeleteAllEmbeddings(session.UserID)
+
+	// Get all non-archived photos
+	photos, err := app.db.GetNonArchivedPhotos(session.UserID)
 	if err != nil {
 		http.Error(w, "Failed to get photos", http.StatusInternalServerError)
 		return
@@ -1053,7 +1057,7 @@ func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":    "success",
-			"message":   "All photos already have embeddings",
+			"message":   "No photos to analyze",
 			"generated": 0,
 		})
 		return
@@ -1063,7 +1067,7 @@ func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request)
 	embeddingService := NewEmbeddingService(app.config.EmbeddingServiceURL)
 
 	// Check if service is healthy
-	healthy, err := embeddingService.IsHealthy()
+	healthy, _ := embeddingService.IsHealthy()
 	if !healthy {
 		http.Error(w, "Embedding service not available. Please start the CLIP service.", http.StatusServiceUnavailable)
 		return
@@ -1103,8 +1107,13 @@ func (app *App) HandleGenerateEmbeddings(w http.ResponseWriter, r *http.Request)
 		"message":   fmt.Sprintf("Generated embeddings for %d photos (%d errors)", generated, errors),
 		"generated": generated,
 		"errors":    errors,
-		"remaining": len(photos) - generated - errors,
+		"total":     len(photos),
 	})
+}
+
+// FindGroupsRequest is the request body for finding photo groups
+type FindGroupsRequest struct {
+	SimilarityThreshold float64 `json:"similarity_threshold"`
 }
 
 // HandleFindGroups finds groups of similar photos
@@ -1113,6 +1122,12 @@ func (app *App) HandleFindGroups(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// Parse request body for threshold
+	var req FindGroupsRequest
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&req)
 	}
 
 	// Get all embeddings for user
@@ -1142,8 +1157,11 @@ func (app *App) HandleFindGroups(w http.ResponseWriter, r *http.Request) {
 		embeddings[photoID] = emb
 	}
 
-	// Cluster photos
-	threshold := app.config.SimilarityThreshold
+	// Use threshold from request, fallback to config, fallback to default
+	threshold := req.SimilarityThreshold
+	if threshold <= 0 || threshold > 1 {
+		threshold = app.config.SimilarityThreshold
+	}
 	if threshold <= 0 || threshold > 1 {
 		threshold = 0.75
 	}

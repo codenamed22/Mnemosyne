@@ -132,6 +132,19 @@
                         </div>
                     </div>
                     
+                    <!-- Similarity Threshold Slider -->
+                    <div class="similarity-slider-container">
+                        <div class="slider-header">
+                            <label for="similaritySlider">Similarity Threshold</label>
+                            <span id="similarityValue" class="slider-value">75%</span>
+                        </div>
+                        <input type="range" id="similaritySlider" min="50" max="95" value="75" class="similarity-slider">
+                        <div class="slider-labels">
+                            <span>More groups (50%)</span>
+                            <span>Fewer groups (95%)</span>
+                        </div>
+                    </div>
+                    
                     <div class="organize-actions">
                         <button id="generateEmbeddingsBtn" class="btn btn-secondary">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

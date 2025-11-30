@@ -825,9 +825,23 @@ async function bulkDelete() {
 
 // ==================== ORGANIZE / PHOTO SELECTOR ====================
 
+let similarityThreshold = 75;
+
 function setupOrganize() {
     document.getElementById('generateEmbeddingsBtn')?.addEventListener('click', generateEmbeddings);
     document.getElementById('findGroupsBtn')?.addEventListener('click', findGroups);
+    
+    // Setup similarity slider
+    const slider = document.getElementById('similaritySlider');
+    const valueDisplay = document.getElementById('similarityValue');
+    
+    if (slider && valueDisplay) {
+        slider.addEventListener('input', (e) => {
+            similarityThreshold = parseInt(e.target.value);
+            valueDisplay.textContent = similarityThreshold + '%';
+            slider.dataset.userChanged = 'true';
+        });
+    }
 }
 
 async function loadOrganizeStatus() {
@@ -861,6 +875,18 @@ async function loadOrganizeStatus() {
             llmStatus.className = 'status-badge status-warning';
         }
         
+        // Set slider to server's default if this is first load
+        if (status.similarity_threshold) {
+            const serverThreshold = Math.round(status.similarity_threshold * 100);
+            const slider = document.getElementById('similaritySlider');
+            const valueDisplay = document.getElementById('similarityValue');
+            if (slider && !slider.dataset.userChanged) {
+                slider.value = serverThreshold;
+                similarityThreshold = serverThreshold;
+                if (valueDisplay) valueDisplay.textContent = serverThreshold + '%';
+            }
+        }
+        
     } catch (error) {
         console.error('Error loading organize status:', error);
     }
@@ -887,6 +913,9 @@ async function generateEmbeddings() {
         alert(result.message);
         loadOrganizeStatus();
         
+        // Clear any existing groups since embeddings changed
+        document.getElementById('photoGroups').style.display = 'none';
+        
     } catch (error) {
         console.error('Error generating embeddings:', error);
         alert('Failed to generate embeddings: ' + error.message);
@@ -905,7 +934,13 @@ async function findGroups() {
     try {
         const response = await fetch('/api/organize/find-groups', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': csrfToken }
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken 
+            },
+            body: JSON.stringify({
+                similarity_threshold: similarityThreshold / 100
+            })
         });
         
         if (!response.ok) throw new Error('Failed to find groups');
@@ -913,7 +948,7 @@ async function findGroups() {
         const result = await response.json();
         
         if (result.groups.length === 0) {
-            alert('No similar photo groups found. Try lowering the similarity threshold in config.');
+            alert(`No similar photo groups found at ${similarityThreshold}% similarity.\nTry lowering the threshold with the slider.`);
             return;
         }
         

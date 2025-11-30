@@ -575,6 +575,18 @@ func (d *Database) DeleteEmbedding(photoID int64) error {
 	return err
 }
 
+// DeleteAllEmbeddings deletes all embeddings for a user
+func (d *Database) DeleteAllEmbeddings(userID int64) (int64, error) {
+	result, err := d.db.Exec(`
+		DELETE FROM photo_embeddings 
+		WHERE photo_id IN (SELECT id FROM photos WHERE user_id = ?)
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // GetEmbeddingCount returns the number of embeddings for a user
 func (d *Database) GetEmbeddingCount(userID int64) (int, error) {
 	var count int
